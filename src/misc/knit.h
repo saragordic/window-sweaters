@@ -87,3 +87,7 @@ extern float g_knit_dim;
 
 /// Discard every cached tile. Call after changing the gauge, stitch or basket.
 void knit_flush_cache(void);
+
+// Snapshot the finished fabric once for a clipped entrance. Caller owns image.
+CGImageRef knit_snapshot(CGSize size, float scale, CGRect win, float radius,
+                         float band, uint32_t color, int chart, float dim, float tuck);

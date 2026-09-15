@@ -24,9 +24,10 @@ typedef void (^WeatherReply)(NSData*, NSURLResponse*, NSError*);
 - (void)invalidateAndCancel {}
 @end
 @interface TestWeather : KnitWeather
+@property int refreshes;
 @end
 @implementation TestWeather
-- (void)refresh {} // No real location requests in this test.
+- (void)refresh { self.refreshes++; } // No real location requests in this test.
 @end
 static void drain(void) {
   __block BOOL finished = NO;
@@ -84,6 +85,13 @@ int main(void) {
     NSData* cold = payload(@10, @(NSDate.date.timeIntervalSince1970), @"°C");
     session.reply(cold, ok, nil); drain();
     assert(changes == 1 && !controlled.task);
+    assert(controlled.timer.timeInterval == 3600);
+    int refreshes = controlled.refreshes;
+    [controlled woke:nil];
+    assert(controlled.refreshes == refreshes);
+    controlled.lastWeatherCheck = [NSDate dateWithTimeIntervalSinceNow:-3601];
+    [controlled woke:nil];
+    assert(controlled.refreshes == refreshes + 1);
     controlled.locating = YES;
     [controlled locationManager:manager didUpdateLocations:@[location]];
     session.reply(nil, ok, [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNotConnectedToInternet userInfo:nil]);

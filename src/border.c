@@ -1,6 +1,7 @@
 #include "border.h"
 #include "misc/apps.h"
 #include "misc/chart.h"
+#include "misc/reveal.h"
 #include <math.h>
 #include "hashtable.h"
 #include "misc/extern.h"
@@ -9,6 +10,8 @@
 #include <time.h>
 
 extern struct settings g_settings;
+bool (*border_reveal_allowed)(void);
+void (*border_reveal_schedule)(void);
 
 struct settings* border_get_settings(struct border* border) {
   assert(pthread_main_np() != 0);
@@ -17,7 +20,14 @@ struct settings* border_get_settings(struct border* border) {
          : &g_settings;
 }
 
+static void border_end_reveal(struct border* border) {
+  border->revealing = false;
+  if (border->reveal_image) CGImageRelease(border->reveal_image);
+  border->reveal_image = NULL;
+}
+
 static void border_destroy_window(struct border* border) {
+  border_end_reveal(border);
   if (border->context) CGContextRelease(border->context);
   if (border->wid) SLSReleaseWindow(border->cid, border->wid);
   border->wid = 0;
@@ -93,6 +103,8 @@ static void border_draw(struct border* border, CGRect frame, struct settings* se
   if (settings->border_style == BORDER_STYLE_KNIT) {
     CGContextClearRect(border->context, frame);
     if (!g_knit_on) {
+      border_end_reveal(border);
+      border->sweater_drawn = false;
       CGContextFlush(border->context);
       CGContextRestoreGState(border->context);
       SLSFlushWindowContentRegion(border->cid, border->wid, NULL);
@@ -108,15 +120,31 @@ static void border_draw(struct border* border, CGRect frame, struct settings* se
       yarn = rule->color;
     }
 
-    knit_draw(border->context,
-              border->drawing_bounds,
-              border->radius,
-              settings->border_width,
-              yarn,
-              chart,
-              border->focused ? 0.f : g_knit_dim,
-              // drawn above the window, a deep tuck would cover its content
-              settings->border_order == BORDER_ORDER_ABOVE ? 1.f : g_knit.tuck);
+    if (!border->revealing && !border->is_proxy && !border->external_proxy_wid
+        && !border->native_transform && (!border->visible || !border->sweater_drawn)
+        && border_reveal_allowed && border_reveal_allowed()) {
+      border->revealing = true;
+      border->reveal_progress = 0;
+      border->reveal_started = CFAbsoluteTimeGetCurrent();
+      if (border_reveal_schedule) border_reveal_schedule();
+    }
+    border->sweater_drawn = true;
+    float tuck = settings->border_order == BORDER_ORDER_ABOVE ? 1.f : g_knit.tuck;
+    if (border->revealing && !border->reveal_image) {
+      border->reveal_image = knit_snapshot(frame.size, settings->hidpi ? 2 : 1,
+          border->drawing_bounds, border->radius, settings->border_width,
+          yarn, chart, border->focused ? 0.f : g_knit_dim, tuck);
+      if (!border->reveal_image) border_end_reveal(border);
+    }
+    if (border->revealing) {
+      knit_reveal_clip(border->context, border->drawing_bounds, border->radius,
+                       settings->border_width, tuck, border->reveal_progress);
+      CGContextDrawImage(border->context, frame, border->reveal_image);
+    } else {
+      knit_draw(border->context, border->drawing_bounds, border->radius,
+                settings->border_width, yarn, chart,
+                border->focused ? 0.f : g_knit_dim, tuck);
+    }
     CGContextFlush(border->context);
     CGContextRestoreGState(border->context);
     SLSFlushWindowContentRegion(border->cid, border->wid, NULL);
@@ -355,6 +383,7 @@ void border_update_internal(struct border* border, struct settings* settings, co
     border->frame = frame;
   }
 
+  if (!border->visible && g_knit_on && border_reveal_allowed) border->needs_redraw = true;
   if (border->needs_redraw) border_draw(border, frame, settings);
 
   SLSTransactionMoveWindowWithGroup(transaction, border->wid, border->origin);
@@ -604,6 +633,10 @@ void border_hide(struct border* border) {
   pthread_mutex_lock(&border->mutex);
   border->geometry_valid = false;
   border->visible = false;
+  if (border->revealing) {
+    border_end_reveal(border);
+    border->needs_redraw = true;
+  }
   if (border->wid) {
     CFTypeRef transaction = SLSTransactionCreate(border->cid);
     if (transaction) {
@@ -627,6 +660,12 @@ void border_unhide(struct border* border) {
     return;
   }
 
+  if (!border->visible && g_knit_on && border_reveal_allowed) {
+    border->needs_redraw = true;
+    border_update(border, false);
+    pthread_mutex_unlock(&border->mutex);
+    return;
+  }
   if (border->wid) {
     struct settings* settings = border_get_settings(border);
     CFTypeRef transaction = SLSTransactionCreate(border->cid);
@@ -641,4 +680,30 @@ void border_unhide(struct border* border) {
     }
   }
   pthread_mutex_unlock(&border->mutex);
+}
+
+bool border_begin_reveal(struct border* border) {
+  assert(pthread_main_np());
+  if (!border->visible || !border->geometry_valid || border->resize_suppressed
+      || border->is_proxy || border->external_proxy_wid || border->native_transform
+      || border_get_settings(border)->border_style != BORDER_STYLE_KNIT) return false;
+  border->revealing = true;
+  border->reveal_progress = 0;
+  border->reveal_started = CFAbsoluteTimeGetCurrent();
+  border->needs_redraw = true;
+  return true;
+}
+
+bool border_step_reveal(struct border* border, float progress) {
+  assert(pthread_main_np());
+  if (!border->revealing) return false;
+  if (progress < 0) {
+    double t = fmax(0, fmin(1, (CFAbsoluteTimeGetCurrent() - border->reveal_started) / .3));
+    progress = 1 - pow(1 - t, 3);
+  }
+  border->reveal_progress = fmaxf(0, fminf(1, progress));
+  if (progress >= 1 || !g_knit_on) border_end_reveal(border);
+  border->needs_redraw = true;
+  border_update(border, false);
+  return border->revealing;
 }

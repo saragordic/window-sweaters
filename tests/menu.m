@@ -38,6 +38,9 @@
 #include "../src/menubar.m"
 #undef NSUserDefaults
 
+void knit_reveal_configure(bool (*allowed)(void), void (*schedule)(void)) {}
+bool knit_reveal_step(float progress) { return false; }
+
 struct knit_gauge g_knit = {.rows = 6};
 int g_knit_stitch, g_knit_basket, g_knit_anchor;
 bool g_knit_on = true, g_knit_pattern_by_app = true;

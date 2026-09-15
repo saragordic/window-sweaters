@@ -37,6 +37,7 @@ BOOL knit_weather_temperature(NSData* data, NSDate* now, double* celsius) {
 @property(strong) NSTimer* locationTimeout;
 @property(nonatomic) NSUInteger generation;
 @property(nonatomic) BOOL locating;
+@property(strong) NSDate* lastWeatherCheck;
 @end
 
 @implementation KnitWeather
@@ -55,7 +56,10 @@ BOOL knit_weather_temperature(NSData* data, NSDate* now, double* celsius) {
   [_location stopUpdatingLocation];
   [_session invalidateAndCancel];
 }
-- (void)woke:(NSNotification*)notification { [self refresh]; }
+- (void)woke:(NSNotification*)notification {
+  if (!self.lastWeatherCheck || -self.lastWeatherCheck.timeIntervalSinceNow >= 3600)
+    [self refresh];
+}
 - (void)setEnabled:(BOOL)enabled {
   if (_enabled == enabled) return;
   _enabled = enabled;
@@ -66,10 +70,10 @@ BOOL knit_weather_temperature(NSData* data, NSDate* now, double* celsius) {
   [self.timer invalidate]; self.timer = nil;
   if (!enabled) { self.status = @"Weather mode is off"; return; }
   __weak KnitWeather* weakSelf = self;
-  self.timer = [NSTimer scheduledTimerWithTimeInterval:900 repeats:YES block:^(NSTimer* timer) {
+  self.timer = [NSTimer scheduledTimerWithTimeInterval:3600 repeats:YES block:^(NSTimer* timer) {
     [weakSelf refresh];
   }];
-  self.timer.tolerance = 30;
+  self.timer.tolerance = 60;
   [self refresh];
 }
 - (void)refresh {
@@ -150,6 +154,7 @@ BOOL knit_weather_temperature(NSData* data, NSDate* now, double* celsius) {
           strongSelf.status = @"Weather unavailable — keeping current sweaters; retrying later";
           return;
         }
+        strongSelf.lastWeatherCheck = NSDate.date;
         strongSelf.status = [NSString stringWithFormat:@"%.1f°F / %.1f°C — checked %@",
           celsius * 9.0 / 5.0 + 32.0, celsius,
           [NSDateFormatter localizedStringFromDate:NSDate.date dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterShortStyle]];

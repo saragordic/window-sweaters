@@ -71,6 +71,11 @@ struct border {
   pthread_mutex_t mutex;
   int cid;
 
+  CGImageRef reveal_image;
+  bool revealing;
+  float reveal_progress;
+  CFAbsoluteTime reveal_started;
+  bool sweater_drawn;
   bool focused;
   bool needs_redraw;
   bool too_small;
@@ -135,3 +140,9 @@ void border_hide(struct border* border);
 void border_unhide(struct border* border);
 
 struct settings* border_get_settings(struct border* border);
+
+// Main-thread entrance animation. Optional callbacks keep headless probes deterministic.
+extern bool (*border_reveal_allowed)(void);
+extern void (*border_reveal_schedule)(void);
+bool border_begin_reveal(struct border* border);
+bool border_step_reveal(struct border* border, float progress);

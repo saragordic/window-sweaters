@@ -32,6 +32,8 @@ bin/render-test: tests/render.c src/knit.c src/chart.c src/apps.c src/misc/knit.
 	clang -std=c99 -O3 -Isrc tests/render.c src/knit.c src/chart.c src/apps.c -framework ApplicationServices -framework CoreText -o $@
 
 test: bin/render-test
+	clang -std=c99 -O1 -g -fsanitize=address,undefined -Isrc tests/reveal.c src/knit.c src/chart.c src/apps.c -framework ApplicationServices -framework CoreText -o bin/reveal-test
+	bin/reveal-test
 	clang -std=c99 -O1 -g -fsanitize=address,undefined -Isrc tests/tracking.c src/animation.c -o bin/tracking-test $(LIBS)
 	bin/tracking-test
 	clang -std=c99 -O1 -g -fsanitize=address,undefined -Isrc tests/events.c src/hashtable.c -o bin/events-test $(LIBS)
@@ -72,3 +74,7 @@ bench: bin/render-test
 # Optional owned-window display handoff probe; --list is read-only.
 bin/live-display: tests/live_display.m tests/live_resize.m src/border.c src/border.h src/knit.c src/chart.c src/apps.c | bin
 	clang -O2 -g -fobjc-arc -Isrc tests/live_display.m src/animation.c src/knit.c src/chart.c src/apps.c -o $@ $(LIBS)
+
+# Explicitly requested visual test only: two owned windows for 14 seconds.
+bin/live-reveal: tests/live_reveal.m src/border.c src/menubar.m src/misc/reveal.h | bin
+	clang -O2 -g -fobjc-arc -Isrc tests/live_reveal.m src/weather.m src/animation.c src/knit.c src/chart.c src/apps.c -o $@ $(LIBS)

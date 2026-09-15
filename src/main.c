@@ -248,3 +248,18 @@ int main(int argc, char** argv) {
   }
   return 0;
 }
+
+void knit_reveal_configure(bool (*allowed)(void), void (*schedule)(void)) {
+  border_reveal_allowed = allowed;
+  border_reveal_schedule = schedule;
+}
+
+// No border pointers survive a frame: windows can close during the reveal.
+bool knit_reveal_step(float progress) {
+  assert(pthread_main_np());
+  bool active = false;
+  for (int i = 0; i < g_windows.capacity; i++)
+    for (struct bucket* bucket = g_windows.buckets[i]; bucket; bucket = bucket->next)
+      if (bucket->value) active |= border_step_reveal(bucket->value, progress);
+  return active;
+}

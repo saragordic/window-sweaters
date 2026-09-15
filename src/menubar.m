@@ -14,6 +14,8 @@
 
 extern void knit_apply(const char* arg);   // main.c: feeds one "key=value"
 extern bool g_knit_on;
+extern void knit_reveal_configure(bool (*allowed)(void), void (*schedule)(void));
+extern bool knit_reveal_step(float progress);
 
 static bool knit_menu_chart_valid(int index) {
   return index >= 0 && index < g_chart_count && g_charts[index].px
@@ -155,6 +157,7 @@ static void knit_load_prefs(void) {
 @property(strong) NSMutableDictionary<NSString*, NSImage*>* swatches;
 @property(strong) id activity;
 @property(strong) KnitWeather* weather;
+@property(strong) NSTimer* revealTimer;
 @end
 
 @implementation KnitMenu
@@ -205,11 +208,30 @@ static void knit_load_prefs(void) {
                                       : @"Window Sweaters — sweaters are off";
 }
 
+- (void)startRevealTimer {
+  if (self.revealTimer) return;
+  __weak KnitMenu* weakSelf = self;
+  self.revealTimer = [NSTimer timerWithTimeInterval:1.0 / 60 repeats:YES block:^(NSTimer* timer) {
+    float progress = NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion ? 1 : -1;
+    if (!knit_reveal_step(progress)) {
+      [timer invalidate];
+      weakSelf.revealTimer = nil;
+    }
+  }];
+  [NSRunLoop.mainRunLoop addTimer:self.revealTimer forMode:NSRunLoopCommonModes];
+}
+
+- (void)setSweatersEnabled:(BOOL)enabled {
+  if (enabled == g_knit_on) return;
+  knit_apply(enabled ? "knit=on" : "knit=off");
+  [self updateStatus];
+}
+
 - (void)startWeather {
   self.weather = [KnitWeather new];
   __weak KnitMenu* weakSelf = self;
   self.weather.temperatureChanged = ^(double celsius) {
-    knit_apply(knit_weather_is_cold(celsius) ? "knit=on" : "knit=off");
+    [weakSelf setSweatersEnabled:knit_weather_is_cold(celsius)];
     [weakSelf updateStatus];
   };
   [self.weather setEnabled:[NSUserDefaults.standardUserDefaults boolForKey:@"weatherAutomatic"]];
@@ -220,7 +242,7 @@ static void knit_load_prefs(void) {
   [NSUserDefaults.standardUserDefaults setBool:enabled forKey:@"weatherAutomatic"];
   [self.weather setEnabled:enabled];
   if (!enabled) {
-    knit_apply([NSUserDefaults.standardUserDefaults boolForKey:@"on"] ? "knit=on" : "knit=off");
+    [self setSweatersEnabled:[NSUserDefaults.standardUserDefaults boolForKey:@"on"]];
     [self updateStatus];
   }
 }
@@ -233,7 +255,7 @@ static void knit_load_prefs(void) {
 - (void)toggle:(NSMenuItem*)sender {
   [self.weather setEnabled:NO];
   [NSUserDefaults.standardUserDefaults setBool:NO forKey:@"weatherAutomatic"];
-  knit_apply(g_knit_on ? "knit=off" : "knit=on");
+  [self setSweatersEnabled:!g_knit_on];
   knit_save_prefs();
   [self updateStatus];
 }
@@ -497,6 +519,11 @@ static void knit_load_prefs(void) {
 @end
 
 static KnitMenu* g_menu = nil;
+static bool knit_reveal_allowed(void) {
+  return !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+}
+static void knit_reveal_schedule(void) { [g_menu startRevealTimer]; }
+
 
 // The status item MUST be created after the application has finished
 // launching. Built before [NSApp run], it draws its icon but its menu never
@@ -533,6 +560,8 @@ void knit_application_prepare(void) {
 
 void knit_menubar_prepare(void) {
   @autoreleasepool {
+    if (!g_menu) g_menu = [KnitMenu new];
+    knit_reveal_configure(knit_reveal_allowed, knit_reveal_schedule);
     knit_charts_load(knit_charts_dir());
     knit_apps_load();
     knit_load_prefs();
@@ -542,7 +571,7 @@ void knit_menubar_prepare(void) {
 void knit_menubar_start(void) {
   @autoreleasepool {
     NSApplication* app = NSApplication.sharedApplication;
-    g_menu = [[KnitMenu alloc] init];
+    if (!g_menu) g_menu = [[KnitMenu alloc] init];
     g_delegate = [[KnitAppDelegate alloc] init];
     app.delegate = g_delegate;
     // accessory: menu bar only, no Dock icon
