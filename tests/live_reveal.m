@@ -46,6 +46,7 @@ float knit_current_width(void) { return g_settings.border_width; }
     NSWindow* window = [[NSWindow alloc] initWithContentRect:rect
       styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable
       backing:NSBackingStoreBuffered defer:NO];
+    if (demo) { window.level = NSFloatingWindowLevel; window.ignoresMouseEvents = YES; }
     window.title = demo ? @"Window Sweaters" : (i ? @"Sweater test · Safari pattern" : @"Sweater test · Chrome pattern");
     window.backgroundColor = [NSColor colorWithSRGBRed:.96 green:.95 blue:.92 alpha:1];
     NSTextField* label = [NSTextField wrappingLabelWithString:demo ? @"A cosier desktop." : @"Preparing the reveal…"];
@@ -141,6 +142,8 @@ int main(int argc, const char** argv) {
       NSRect screen = NSScreen.mainScreen.visibleFrame;
       NSWindow* backdrop = [[NSWindow alloc] initWithContentRect:NSMakeRect(NSMinX(screen)+60,NSMidY(screen)-205,965,435)
         styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
+      backdrop.level = NSFloatingWindowLevel - 1;
+      backdrop.ignoresMouseEvents = YES;
       backdrop.backgroundColor = [NSColor colorWithSRGBRed:.86 green:.87 blue:.85 alpha:1];
       [backdrop orderFront:nil];
       dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 25*NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [NSApp terminate:nil]; });
