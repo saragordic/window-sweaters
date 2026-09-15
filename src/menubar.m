@@ -5,6 +5,7 @@
 // app to keep in sync.
 
 #import <Cocoa/Cocoa.h>
+#import "weather.h"
 #include "misc/knit.h"
 #include "misc/chart.h"
 #include "misc/apps.h"
@@ -13,6 +14,8 @@
 
 extern void knit_apply(const char* arg);   // main.c: feeds one "key=value"
 extern bool g_knit_on;
+extern void knit_reveal_configure(bool (*allowed)(void), void (*schedule)(void));
+extern bool knit_reveal_step(float progress);
 
 static bool knit_menu_chart_valid(int index) {
   return index >= 0 && index < g_chart_count && g_charts[index].px
@@ -94,7 +97,7 @@ static bool knit_menu_path_available(const char* path, bool directory) {
 // Menu choices survive a restart, the way a menu bar app should.
 static void knit_save_prefs(void) {
   NSUserDefaults* d = NSUserDefaults.standardUserDefaults;
-  [d setBool:g_knit_on forKey:@"on"];
+  if (![d boolForKey:@"weatherAutomatic"]) [d setBool:g_knit_on forKey:@"on"];
   [d setInteger:g_knit_stitch forKey:@"yarn"];
   [d setInteger:g_knit_basket forKey:@"basket"];
   [d setFloat:knit_current_width() forKey:@"width"];
@@ -153,6 +156,8 @@ static void knit_load_prefs(void) {
 @property(strong) NSStatusItem* item;
 @property(strong) NSMutableDictionary<NSString*, NSImage*>* swatches;
 @property(strong) id activity;
+@property(strong) KnitWeather* weather;
+@property(strong) NSTimer* revealTimer;
 @end
 
 @implementation KnitMenu
@@ -203,8 +208,54 @@ static void knit_load_prefs(void) {
                                       : @"Window Sweaters — sweaters are off";
 }
 
+- (void)startRevealTimer {
+  if (self.revealTimer) return;
+  __weak KnitMenu* weakSelf = self;
+  self.revealTimer = [NSTimer timerWithTimeInterval:1.0 / 60 repeats:YES block:^(NSTimer* timer) {
+    float progress = NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion ? 1 : -1;
+    if (!knit_reveal_step(progress)) {
+      [timer invalidate];
+      weakSelf.revealTimer = nil;
+    }
+  }];
+  [NSRunLoop.mainRunLoop addTimer:self.revealTimer forMode:NSRunLoopCommonModes];
+}
+
+- (void)setSweatersEnabled:(BOOL)enabled {
+  if (enabled == g_knit_on) return;
+  knit_apply(enabled ? "knit=on" : "knit=off");
+  [self updateStatus];
+}
+
+- (void)startWeather {
+  self.weather = [KnitWeather new];
+  __weak KnitMenu* weakSelf = self;
+  self.weather.temperatureChanged = ^(double celsius) {
+    [weakSelf setSweatersEnabled:knit_weather_is_cold(celsius)];
+    [weakSelf updateStatus];
+  };
+  [self.weather setEnabled:[NSUserDefaults.standardUserDefaults boolForKey:@"weatherAutomatic"]];
+}
+
+- (void)toggleWeather:(NSMenuItem*)sender {
+  BOOL enabled = !self.weather.enabled;
+  [NSUserDefaults.standardUserDefaults setBool:enabled forKey:@"weatherAutomatic"];
+  [self.weather setEnabled:enabled];
+  if (!enabled) {
+    [self setSweatersEnabled:[NSUserDefaults.standardUserDefaults boolForKey:@"on"]];
+    [self updateStatus];
+  }
+}
+
+- (void)refreshWeather:(id)sender { [self.weather refresh]; }
+- (void)weatherCredits:(id)sender {
+  [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"https://open-meteo.com/"]];
+}
+
 - (void)toggle:(NSMenuItem*)sender {
-  knit_apply(g_knit_on ? "knit=off" : "knit=on");
+  [self.weather setEnabled:NO];
+  [NSUserDefaults.standardUserDefaults setBool:NO forKey:@"weatherAutomatic"];
+  [self setSweatersEnabled:!g_knit_on];
   knit_save_prefs();
   [self updateStatus];
 }
@@ -355,6 +406,17 @@ static void knit_load_prefs(void) {
   [self addAction:menu title:@"Show Sweater Borders" selector:@selector(toggle:)];
   [menu itemAtIndex:0].state = g_knit_on ? NSControlStateValueOn : NSControlStateValueOff;
 
+  NSMenu* weather = [self submenu:menu title:@"Weather"];
+  [self addAction:weather title:@"Automatic below 60°F / 15.56°C" selector:@selector(toggleWeather:)];
+  [weather itemAtIndex:0].state = self.weather.enabled ? NSControlStateValueOn : NSControlStateValueOff;
+  [weather itemAtIndex:0].toolTip = @"Use macOS location and share rounded coordinates with Open-Meteo. Warm weather turns sweaters off. Show Sweater Borders returns to manual control.";
+  NSMenuItem* status = [[NSMenuItem alloc] initWithTitle:self.weather.status ?: @"Weather mode is off" action:nil keyEquivalent:@""];
+  status.enabled = NO;
+  [weather addItem:status];
+  [self addAction:weather title:@"Check Weather Now" selector:@selector(refreshWeather:)];
+  [weather itemAtIndex:2].enabled = self.weather.enabled;
+  [self addAction:weather title:@"Weather by Open-Meteo…" selector:@selector(weatherCredits:)];
+
   NSMenu* pattern = [self submenu:menu title:@"Pattern"];
   NSMenuItem* byApp = [self add:pattern title:@"By App" arg:@"chart=by-app"
                            on:g_knit_pattern_by_app];
@@ -457,6 +519,11 @@ static void knit_load_prefs(void) {
 @end
 
 static KnitMenu* g_menu = nil;
+static bool knit_reveal_allowed(void) {
+  return !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+}
+static void knit_reveal_schedule(void) { [g_menu startRevealTimer]; }
+
 
 // The status item MUST be created after the application has finished
 // launching. Built before [NSApp run], it draws its icon but its menu never
@@ -470,6 +537,8 @@ static KnitMenu* g_menu = nil;
                   statusItemWithLength:NSSquareStatusItemLength];
   g_menu.item.button.image = knit_status_icon();
   [g_menu.item.button setAccessibilityLabel:@"Window Sweaters"];
+
+  [g_menu startWeather];
 
   NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Window Sweaters"];
   menu.autoenablesItems = NO;
@@ -491,6 +560,8 @@ void knit_application_prepare(void) {
 
 void knit_menubar_prepare(void) {
   @autoreleasepool {
+    if (!g_menu) g_menu = [KnitMenu new];
+    knit_reveal_configure(knit_reveal_allowed, knit_reveal_schedule);
     knit_charts_load(knit_charts_dir());
     knit_apps_load();
     knit_load_prefs();
@@ -500,7 +571,7 @@ void knit_menubar_prepare(void) {
 void knit_menubar_start(void) {
   @autoreleasepool {
     NSApplication* app = NSApplication.sharedApplication;
-    g_menu = [[KnitMenu alloc] init];
+    if (!g_menu) g_menu = [[KnitMenu alloc] init];
     g_delegate = [[KnitAppDelegate alloc] init];
     app.delegate = g_delegate;
     // accessory: menu bar only, no Dock icon

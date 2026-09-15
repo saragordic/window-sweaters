@@ -667,3 +667,19 @@ void knit_draw(CGContextRef ctx, CGRect win, float radius, float band,
   if (cuff_ring) CFRelease(cuff_ring);
   CGContextRestoreGState(ctx);
 }
+
+CGImageRef knit_snapshot(CGSize size, float scale, CGRect win, float radius,
+                         float band, uint32_t color, int chart, float dim, float tuck) {
+  if (size.width <= 0 || size.height <= 0 || !isfinite(size.width)
+      || !isfinite(size.height) || !isfinite(scale) || scale <= 0) return NULL;
+  CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+  CGContextRef bitmap = CGBitmapContextCreate(NULL, ceil(size.width * scale),
+      ceil(size.height * scale), 8, 0, colorSpace, kCGImageAlphaPremultipliedLast);
+  CGColorSpaceRelease(colorSpace);
+  if (!bitmap) return NULL;
+  CGContextScaleCTM(bitmap, scale, scale);
+  knit_draw(bitmap, win, radius, band, color, chart, dim, tuck);
+  CGImageRef image = CGBitmapContextCreateImage(bitmap);
+  CGContextRelease(bitmap);
+  return image;
+}

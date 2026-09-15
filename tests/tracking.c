@@ -51,6 +51,15 @@ int knit_pattern_for_app(const char* name) { return -1; }
 void knit_draw(CGContextRef c, CGRect r, float radius, float width, uint32_t color,
                int chart, float dim, float tuck) { draws++; }
 
+CGImageRef knit_snapshot(CGSize size, float scale, CGRect win, float radius,
+                         float band, uint32_t color, int chart, float dim, float tuck) {
+  CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+  CGContextRef c = CGBitmapContextCreate(NULL, 4, 4, 8, 0, cs, kCGImageAlphaPremultipliedLast);
+  CGImageRef image = CGBitmapContextCreateImage(c);
+  CGContextRelease(c); CGColorSpaceRelease(cs);
+  return image;
+}
+
 static int released_surfaces;
 CGError mock_release_window(int cid, uint32_t wid) { assert(cid==1 && wid==2); released_surfaces++; return kCGErrorSuccess; }
 static bool mouse_held;
@@ -196,6 +205,9 @@ static void check_display_transfer(void) {
   puts("PASS: display Space transfer, same-Space no-op, retry after failed transfer, unknown Space and proxy guards");
 }
 
+static bool allow_reveal(void) { return true; }
+static bool reduce_motion(void) { return false; }
+
 int main(void) {
   check_display_transfer();
   struct border border;
@@ -254,12 +266,46 @@ int main(void) {
   border_update_geometry(&border);
   assert(flushes == old_flushes + 1 && !border.needs_redraw);
 
+  // A reveal belongs only to currently visible, eligible windows.
+  g_settings.border_style = BORDER_STYLE_KNIT;
+  g_knit_on = true;
+  assert(border_begin_reveal(&border));
+  assert(border.reveal_progress == 0 && border.revealing);
+  assert(border_step_reveal(&border, .5));
+  assert(border.reveal_progress == .5);
+  assert(!border_step_reveal(&border, 1));
+  assert(!border.revealing);
+  assert(border_begin_reveal(&border));
+  border_hide(&border);
+  assert(!border.revealing && border.needs_redraw);
+  assert(!border_begin_reveal(&border));
+  border_update_geometry(&border);
+  assert(!border.revealing); // Restore does not replay an entrance.
+
   // Hiding invalidates the shortcut, so unchanged bounds can be restored.
   border_hide(&border);
   assert(!border.geometry_valid);
   old_commits = commits;
   border_update_geometry(&border);
   assert(commits == old_commits + 1 && border.geometry_valid);
+
+  // Production automatic reappearance: hidden surfaces reveal on restore,
+  // movement does not restart, and Reduce Motion draws the full sweater.
+  border_reveal_allowed = allow_reveal;
+  border_hide(&border);
+  border_update_geometry(&border);
+  assert(border.revealing && border.reveal_progress == 0);
+  double started = border.reveal_started;
+  assert(border_step_reveal(&border, .5));
+  border_update_geometry(&border);
+  assert(border.reveal_started == started && border.reveal_progress == .5);
+  assert(!border_step_reveal(&border, 1) && !border.reveal_image);
+  border_hide(&border);
+  border_reveal_allowed = reduce_motion;
+  border_update_geometry(&border);
+  assert(!border.revealing && !border.reveal_image);
+  border_reveal_allowed = NULL;
+  g_knit_on = false;
 
   // An authoritative snapshot must not be replaced with stale cached bounds.
   CGRect fresh = CGRectMake(60, 50, 260, 190);
