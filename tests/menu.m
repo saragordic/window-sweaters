@@ -103,11 +103,21 @@ static int checked_count(NSMenu* menu) {
 static void check_actions(NSMenu* menu) {
   for (NSMenuItem* item in menu.itemArray) {
     if (item.isSeparatorItem) continue;
-    assert(item.enabled);
+    if (!item.enabled) {
+      assert([item.title isEqual:@"Weather mode is off"] || [item.title isEqual:@"Check Weather Now"]);
+      continue;
+    }
     if (item.submenu) { assert(item.submenu.numberOfItems > 0); check_actions(item.submenu); }
     else assert(item.action && item.target);
   }
 }
+
+// Exercise the real mode lifecycle without invoking location or networking.
+@interface KnitMenuTestWeather : KnitWeather
+@end
+@implementation KnitMenuTestWeather
+- (void)refresh {}
+@end
 
 int main(void) {
   @autoreleasepool {
@@ -131,7 +141,7 @@ int main(void) {
     NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Test"];
     menu.autoenablesItems = NO;
     [controller rebuild:menu];
-    NSArray* expected = @[@"Show Sweater Borders", @"Pattern", @"Border Width", @"Stitch Size",
+    NSArray* expected = @[@"Show Sweater Borders", @"Weather", @"Pattern", @"Border Width", @"Stitch Size",
                          @"", @"Quit Window Sweaters"];
     assert(menu.numberOfItems == expected.count);
     for (NSInteger i = 0; i < menu.numberOfItems; i++)
@@ -219,6 +229,26 @@ int main(void) {
     knit_load_prefs();
     assert(g_knit_pattern_by_app && g_knit.rows == 6);
     assert([[KnitTestDefaults standardUserDefaults] floatForKey:@"gauge"] == 6);
+    [controller startWeather];
+    KnitWeather* fake = [KnitMenuTestWeather new];
+    fake.temperatureChanged = controller.weather.temperatureChanged;
+    controller.weather = fake;
+    [[KnitTestDefaults standardUserDefaults] setBool:YES forKey:@"on"];
+    [controller toggleWeather:nil];
+    assert(fake.enabled);
+    fake.temperatureChanged(20);
+    assert(!g_knit_on);
+    knit_save_prefs();
+    assert([[KnitTestDefaults standardUserDefaults] boolForKey:@"on"]);
+    [controller toggleWeather:nil];
+    assert(!fake.enabled && g_knit_on); // Restore manual preference.
+    [controller toggleWeather:nil];
+    fake.temperatureChanged(10);
+    assert(g_knit_on);
+    [controller toggle:nil];
+    assert(!fake.enabled && !g_knit_on);
+    assert(![[KnitTestDefaults standardUserDefaults] boolForKey:@"weatherAutomatic"]);
+    assert(![[KnitTestDefaults standardUserDefaults] boolForKey:@"on"]);
     puts("PASS: native menu structure, truthful state, working selections, chart filtering, gauge limits, cached swatches");
   }
   return 0;

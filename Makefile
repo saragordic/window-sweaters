@@ -1,6 +1,6 @@
 CFILES = src/main.c src/parse.c src/mach.c src/hashtable.c src/events.c src/reconcile.c \
          src/windows.c src/border.c src/animation.c src/knit.c src/chart.c src/apps.c
-LIBS = -framework AppKit -framework Cocoa -framework CoreVideo \
+LIBS = -framework AppKit -framework Cocoa -framework CoreVideo -framework CoreLocation \
        -F/System/Library/PrivateFrameworks/ -framework SkyLight
 
 # Released builds are universal so Intel Macs can run the download. Local
@@ -14,11 +14,13 @@ DEPLOY = -mmacosx-version-min=13.0
 
 all: | bin
 	clang $(ARCHS) $(DEPLOY) -O3 -g -Isrc -fobjc-arc -c src/menubar.m -o bin/menubar.o
-	clang $(ARCHS) $(DEPLOY) -std=c99 -O3 -g -Isrc $(CFILES) bin/menubar.o -o bin/borders $(LIBS)
+	clang $(ARCHS) $(DEPLOY) -O3 -g -Isrc -fobjc-arc -c src/weather.m -o bin/weather.o
+	clang $(ARCHS) $(DEPLOY) -std=c99 -O3 -g -Isrc $(CFILES) bin/menubar.o bin/weather.o -o bin/borders $(LIBS)
 
 debug: | bin
 	clang -O0 -g -Isrc -fobjc-arc -c src/menubar.m -o bin/menubar.o
-	clang -std=c99 -O0 -g -DDEBUG -Isrc $(CFILES) bin/menubar.o -o bin/debug $(LIBS)
+	clang -O0 -g -Isrc -fobjc-arc -c src/weather.m -o bin/weather.o
+	clang -std=c99 -O0 -g -DDEBUG -Isrc $(CFILES) bin/menubar.o bin/weather.o -o bin/debug $(LIBS)
 
 bin:
 	mkdir bin
@@ -41,8 +43,10 @@ test: bin/render-test
 	bin/render-test
 	clang -std=c99 -O1 -g -fsanitize=address,undefined -Isrc tests/ax_focus.c -framework ApplicationServices -o bin/ax-focus-test
 	bin/ax-focus-test
-	clang -std=c99 -O1 -g -fobjc-arc -fsanitize=address,undefined -Isrc tests/menu.m -framework Cocoa -o bin/menu-test
+	clang -std=c99 -O1 -g -fobjc-arc -fsanitize=address,undefined -Isrc tests/menu.m src/weather.m -framework Cocoa -framework CoreLocation -o bin/menu-test
 	bin/menu-test
+	clang -O1 -g -fobjc-arc -fsanitize=address,undefined -Isrc tests/weather.m -framework Cocoa -framework CoreLocation -o bin/weather-test
+	bin/weather-test
 
 # Optional native integration probe: build only. Running it creates its own
 # temporary window; keep it out of unattended unit tests.

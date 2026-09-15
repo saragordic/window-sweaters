@@ -32,6 +32,31 @@ Click the yarn icon in your menu bar to change the style, pattern, border width,
 
 If macOS asks for Accessibility access, enable Window Sweaters in **System Settings → Privacy & Security → Accessibility** so it can follow which window is focused.
 
+### Sweater weather
+
+Choose **Weather → Automatic below 60°F / 15.56°C** to let the local weather
+control all eligible window sweaters. Allow macOS Location Services when asked;
+there is no account, API key, or city to enter. The feature is off by default.
+
+Sweaters turn on strictly below **60°F (15.555…°C)** and off at or above it.
+The menu shows both units and the last successful check time. Weather refreshes
+every 15 minutes, after waking the Mac, or with **Check Weather Now**. Existing
+app exclusions and window eligibility rules still apply.
+
+If location permission is denied, enable it in **System Settings → Privacy &
+Security → Location Services** and check again. If location or weather is
+unavailable, the current sweater state stays unchanged while the app retries.
+**Show Sweater Borders** exits automatic mode and takes manual control. Turning
+off automatic mode restores your saved manual preference. The automatic choice
+survives restart; until fresh weather arrives, the saved manual state is used.
+
+Location is requested at kilometre accuracy and rounded to two decimal places
+before being sent over HTTPS to [Open-Meteo](https://open-meteo.com/). Coordinates
+are not saved in preferences or logged by the app. The provider receives these
+rounded coordinates and your IP address. Weather uses Open-Meteo's current
+modelled outdoor temperature, not an indoor sensor or feels-like temperature.
+See [Open-Meteo's privacy policy](https://open-meteo.com/en/terms#privacy).
+
 ## The sweaters
 
 ![Eight apps shown in By App and Zigzag styles, with enlarged yarn details](docs/collection/styles-comparison.png)

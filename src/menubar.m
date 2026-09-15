@@ -5,6 +5,7 @@
 // app to keep in sync.
 
 #import <Cocoa/Cocoa.h>
+#import "weather.h"
 #include "misc/knit.h"
 #include "misc/chart.h"
 #include "misc/apps.h"
@@ -94,7 +95,7 @@ static bool knit_menu_path_available(const char* path, bool directory) {
 // Menu choices survive a restart, the way a menu bar app should.
 static void knit_save_prefs(void) {
   NSUserDefaults* d = NSUserDefaults.standardUserDefaults;
-  [d setBool:g_knit_on forKey:@"on"];
+  if (![d boolForKey:@"weatherAutomatic"]) [d setBool:g_knit_on forKey:@"on"];
   [d setInteger:g_knit_stitch forKey:@"yarn"];
   [d setInteger:g_knit_basket forKey:@"basket"];
   [d setFloat:knit_current_width() forKey:@"width"];
@@ -153,6 +154,7 @@ static void knit_load_prefs(void) {
 @property(strong) NSStatusItem* item;
 @property(strong) NSMutableDictionary<NSString*, NSImage*>* swatches;
 @property(strong) id activity;
+@property(strong) KnitWeather* weather;
 @end
 
 @implementation KnitMenu
@@ -203,7 +205,34 @@ static void knit_load_prefs(void) {
                                       : @"Window Sweaters — sweaters are off";
 }
 
+- (void)startWeather {
+  self.weather = [KnitWeather new];
+  __weak KnitMenu* weakSelf = self;
+  self.weather.temperatureChanged = ^(double celsius) {
+    knit_apply(knit_weather_is_cold(celsius) ? "knit=on" : "knit=off");
+    [weakSelf updateStatus];
+  };
+  [self.weather setEnabled:[NSUserDefaults.standardUserDefaults boolForKey:@"weatherAutomatic"]];
+}
+
+- (void)toggleWeather:(NSMenuItem*)sender {
+  BOOL enabled = !self.weather.enabled;
+  [NSUserDefaults.standardUserDefaults setBool:enabled forKey:@"weatherAutomatic"];
+  [self.weather setEnabled:enabled];
+  if (!enabled) {
+    knit_apply([NSUserDefaults.standardUserDefaults boolForKey:@"on"] ? "knit=on" : "knit=off");
+    [self updateStatus];
+  }
+}
+
+- (void)refreshWeather:(id)sender { [self.weather refresh]; }
+- (void)weatherCredits:(id)sender {
+  [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"https://open-meteo.com/"]];
+}
+
 - (void)toggle:(NSMenuItem*)sender {
+  [self.weather setEnabled:NO];
+  [NSUserDefaults.standardUserDefaults setBool:NO forKey:@"weatherAutomatic"];
   knit_apply(g_knit_on ? "knit=off" : "knit=on");
   knit_save_prefs();
   [self updateStatus];
@@ -355,6 +384,17 @@ static void knit_load_prefs(void) {
   [self addAction:menu title:@"Show Sweater Borders" selector:@selector(toggle:)];
   [menu itemAtIndex:0].state = g_knit_on ? NSControlStateValueOn : NSControlStateValueOff;
 
+  NSMenu* weather = [self submenu:menu title:@"Weather"];
+  [self addAction:weather title:@"Automatic below 60°F / 15.56°C" selector:@selector(toggleWeather:)];
+  [weather itemAtIndex:0].state = self.weather.enabled ? NSControlStateValueOn : NSControlStateValueOff;
+  [weather itemAtIndex:0].toolTip = @"Use macOS location and share rounded coordinates with Open-Meteo. Warm weather turns sweaters off. Show Sweater Borders returns to manual control.";
+  NSMenuItem* status = [[NSMenuItem alloc] initWithTitle:self.weather.status ?: @"Weather mode is off" action:nil keyEquivalent:@""];
+  status.enabled = NO;
+  [weather addItem:status];
+  [self addAction:weather title:@"Check Weather Now" selector:@selector(refreshWeather:)];
+  [weather itemAtIndex:2].enabled = self.weather.enabled;
+  [self addAction:weather title:@"Weather by Open-Meteo…" selector:@selector(weatherCredits:)];
+
   NSMenu* pattern = [self submenu:menu title:@"Pattern"];
   NSMenuItem* byApp = [self add:pattern title:@"By App" arg:@"chart=by-app"
                            on:g_knit_pattern_by_app];
@@ -470,6 +510,8 @@ static KnitMenu* g_menu = nil;
                   statusItemWithLength:NSSquareStatusItemLength];
   g_menu.item.button.image = knit_status_icon();
   [g_menu.item.button setAccessibilityLabel:@"Window Sweaters"];
+
+  [g_menu startWeather];
 
   NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Window Sweaters"];
   menu.autoenablesItems = NO;
