@@ -117,6 +117,9 @@ float knit_current_width(void) { return g_settings.border_width; }
   if (t>10 && self.phase==6) {
     self.phase++; [self.windows[0] orderFront:nil]; border_update(borders[0],false);
   }
+  // AppKit publishes orderFront asynchronously; the real app's reconciler
+  // observes the ordered window again on subsequent main-loop turns.
+  if (t>=10 && t<11) border_update(borders[0],false);
   if (t>12 && self.phase==7) { self.phase++; [self label:@"Finished\nOpaque fabric · unchanged stitches"]; }
   if (t>14) {
     [timer invalidate]; [g_menu.revealTimer invalidate];
