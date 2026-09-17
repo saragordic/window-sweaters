@@ -39,5 +39,16 @@ static const struct catalogue_entry catalogue[] = {
   { "Adobe Illustrator", "Adobe Illustrator", "atelier-illustrator", "Espresso, orange, apricot", "Warm rugby stripes" },
   { "Terminal", "Terminal", "atelier-terminal", "Charcoal green, soft sage", "Sage stripes with matching knitted corners" },
   { "Cursor", "Cursor", "atelier-cursor", "Warm charcoal, stone", "Soft stone zigzags on charcoal knit" },
+  { "OpenCode", "OpenCode", "atelier-opencode", "Warm charcoal, oatmeal", "Offset oatmeal windowpanes on charcoal knit" },
+  { "Beeper", "Beeper", "atelier-beeper", "Royal violet, alabaster, perfume", "Little speech bubbles on violet knit" },
+  { "Willow Voice", "Willow Voice", "atelier-willow", "Pale lavender, willow indigo", "Little indigo willows on lavender knit" },
+  { "Google Antigravity", "Antigravity", "atelier-antigravity", "Ink, lime, coral, electric blue", "Rainbow arches on ink knit" },
+  { "YouTube Music", "YouTube Music", "atelier-ytmusic", "YouTube red, white, almost black", "Broad white stripes with a black pin on red knit" },
+  { "Proton VPN", "ProtonVPN", "atelier-protonvpn", "Electric violet, white, mountain meadow", "White and meadow chevrons on violet knit" },
+  { "Xcode", "Xcode", "atelier-xcode", "Xcode blue, graphite", "Quiet graphite stripes on blueprint knit" },
+  { "App Store", "App Store", "atelier-appstore", "App Store blue, ice", "Ice checks on App Store blue knit" },
+  { "Android Studio", "Android Studio", "atelier-androidstudio", "Studio blue, Android green", "Android green checks on studio blue knit" },
+  { "System Settings", "System Settings", "atelier-settings", "Aluminum, graphite", "Quiet graphite stripes on aluminum knit" },
+  { "Weather", "Weather", "atelier-weather", "Sky blue, cloud white, sun yellow", "Cloud-white and sun-yellow dots on sky knit" },
 };
 enum { CATALOGUE_COUNT = sizeof catalogue / sizeof catalogue[0] };

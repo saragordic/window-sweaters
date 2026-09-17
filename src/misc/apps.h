@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <sys/types.h>
 
 // Per-app colourways.
 //
@@ -48,3 +49,9 @@ bool knit_pattern_select(const char* name);
 /// Resolve a generic Electron executable to its containing app's filename.
 /// Leaves output untouched on failure. Called only when a window is discovered.
 bool knit_app_name_from_executable(const char* path, char* output, size_t capacity);
+
+/// Filename of a .app bundle, from a path to the bundle or something inside it.
+bool knit_app_name_from_bundle(const char* path, char* output, size_t capacity);
+
+/// Resolve a Safari web app's "Web App" process to its bundle name via argv.
+bool knit_app_name_from_webapp(pid_t pid, char* output, size_t capacity);

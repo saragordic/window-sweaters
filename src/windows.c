@@ -45,11 +45,13 @@ bool windows_window_create(struct table* windows, uint32_t wid, uint64_t sid) {
   if (proc_name(pid, pid_name_buffer, sizeof(pid_name_buffer)) <= 0) return false;
   // VS Code and some other Electron apps share a generic process name. Resolve
   // that name once at discovery, never while moving/resizing or drawing yarn.
-  if (strcmp(pid_name_buffer, "Electron") == 0) {
+  if (strcmp(pid_name_buffer, "Electron") == 0 || strcmp(pid_name_buffer, "studio") == 0) {
     char executable[PROC_PIDPATHINFO_MAXSIZE] = {0};
     if (proc_pidpath(pid, executable, sizeof executable) > 0)
       knit_app_name_from_executable(executable, pid_name_buffer, sizeof pid_name_buffer);
   }
+  if (strcmp(pid_name_buffer, "Web App") == 0)
+    knit_app_name_from_webapp(pid, pid_name_buffer, sizeof pid_name_buffer);
 
 
   if (pid == g_pid || !app_allowed(&g_settings, pid_name_buffer)) return false;

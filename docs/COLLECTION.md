@@ -1,6 +1,6 @@
 # The sweater collection
 
-37 app-inspired colourways, rendered by Window Sweaters. Choose **Pattern → By App** to give each app its own sweater, or **Zigzag** for a shared pattern in each app’s base colour.
+48 app-inspired colourways, rendered by Window Sweaters. Choose **Pattern → By App** to give each app its own sweater, or **Zigzag** for a shared pattern in each app’s base colour.
 
 [Download the By App catalogue](catalogues/Window-Sweaters-Catalogue.pdf) · [Download the Zigzag catalogue](catalogues/Window-Sweaters-Zigzag-Catalogue.pdf)
 
@@ -57,6 +57,17 @@ App names describe colour inspiration and do not imply affiliation or endorsemen
 | [Adobe Illustrator](#35-adobe-illustrator) | Espresso, orange, apricot | Warm rugby stripes |
 | [Terminal](#36-terminal) | Charcoal green, soft sage | Sage stripes with matching knitted corners |
 | [Cursor](#37-cursor) | Warm charcoal, stone | Soft stone zigzags on charcoal knit |
+| [OpenCode](#38-opencode) | Warm charcoal, oatmeal | Offset oatmeal windowpanes on charcoal knit |
+| [Beeper](#39-beeper) | Royal violet, alabaster, perfume | Little speech bubbles on violet knit |
+| [Willow Voice](#40-willow-voice) | Pale lavender, willow indigo | Little indigo willows on lavender knit |
+| [Google Antigravity](#41-google-antigravity) | Ink, lime, coral, electric blue | Rainbow arches on ink knit |
+| [YouTube Music](#42-youtube-music) | YouTube red, white, almost black | Broad white stripes with a black pin on red knit |
+| [Proton VPN](#43-proton-vpn) | Electric violet, white, mountain meadow | White and meadow chevrons on violet knit |
+| [Xcode](#44-xcode) | Xcode blue, graphite | Quiet graphite stripes on blueprint knit |
+| [App Store](#45-app-store) | App Store blue, ice | Ice checks on App Store blue knit |
+| [Android Studio](#46-android-studio) | Studio blue, Android green | Android green checks on studio blue knit |
+| [System Settings](#47-system-settings) | Aluminum, graphite | Quiet graphite stripes on aluminum knit |
+| [Weather](#48-weather) | Sky blue, cloud white, sun yellow | Cloud-white and sun-yellow dots on sky knit |
 
 ## 01 Finder
 
@@ -353,3 +364,91 @@ Soft stone zigzags on charcoal knit.
 **Palette:** Warm charcoal, stone.
 
 ![Cursor: window border, enlarged yarn and all four corners](collection/app-37.png)
+
+## 38 OpenCode
+
+Offset oatmeal windowpanes on charcoal knit.
+
+**Palette:** Warm charcoal, oatmeal.
+
+![OpenCode: window border, enlarged yarn and all four corners](collection/app-38.png)
+
+## 39 Beeper
+
+Little speech bubbles on violet knit.
+
+**Palette:** Royal violet, alabaster, perfume.
+
+![Beeper: window border, enlarged yarn and all four corners](collection/app-39.png)
+
+## 40 Willow Voice
+
+Little indigo willows on lavender knit.
+
+**Palette:** Pale lavender, willow indigo.
+
+![Willow Voice: window border, enlarged yarn and all four corners](collection/app-40.png)
+
+## 41 Google Antigravity
+
+Rainbow arches on ink knit.
+
+**Palette:** Ink, lime, coral, electric blue.
+
+![Google Antigravity: window border, enlarged yarn and all four corners](collection/app-41.png)
+
+## 42 YouTube Music
+
+Broad white stripes with a black pin on red knit.
+
+**Palette:** YouTube red, white, almost black.
+
+![YouTube Music: window border, enlarged yarn and all four corners](collection/app-42.png)
+
+## 43 Proton VPN
+
+White and meadow chevrons on violet knit.
+
+**Palette:** Electric violet, white, mountain meadow.
+
+![Proton VPN: window border, enlarged yarn and all four corners](collection/app-43.png)
+
+## 44 Xcode
+
+Quiet graphite stripes on blueprint knit.
+
+**Palette:** Xcode blue, graphite.
+
+![Xcode: window border, enlarged yarn and all four corners](collection/app-44.png)
+
+## 45 App Store
+
+Ice checks on App Store blue knit.
+
+**Palette:** App Store blue, ice.
+
+![App Store: window border, enlarged yarn and all four corners](collection/app-45.png)
+
+## 46 Android Studio
+
+Android green checks on studio blue knit.
+
+**Palette:** Studio blue, Android green.
+
+![Android Studio: window border, enlarged yarn and all four corners](collection/app-46.png)
+
+## 47 System Settings
+
+Quiet graphite stripes on aluminum knit.
+
+**Palette:** Aluminum, graphite.
+
+![System Settings: window border, enlarged yarn and all four corners](collection/app-47.png)
+
+## 48 Weather
+
+Cloud-white and sun-yellow dots on sky knit.
+
+**Palette:** Sky blue, cloud white, sun yellow.
+
+![Weather: window border, enlarged yarn and all four corners](collection/app-48.png)
