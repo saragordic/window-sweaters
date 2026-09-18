@@ -10,8 +10,8 @@
     <key>CFBundleInfoDictionaryVersion</key>      <string>6.0</string>
     <key>CFBundleName</key>                       <string>Window Sweaters</string>
     <key>CFBundlePackageType</key>                <string>APPL</string>
-    <key>CFBundleShortVersionString</key>         <string>1.4.31</string>
-    <key>CFBundleVersion</key>                    <string>44</string>
+    <key>CFBundleShortVersionString</key>         <string>1.5.0</string>
+    <key>CFBundleVersion</key>                    <string>45</string>
     <key>LSMinimumSystemVersion</key>             <string>13.0</string>
     <key>LSMultipleInstancesProhibited</key>      <true/>
     <key>LSUIElement</key>                        <true/>
