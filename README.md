@@ -34,18 +34,18 @@ If macOS asks for Accessibility access, enable Window Sweaters in **System Setti
 
 ## The sweaters
 
-**Custom sweaters for 37 apps, and counting!** Almost 40 little colourways, with colours picked by hand. These are just a few of my favourites:
+**Custom sweaters for 48 apps, and counting!** Forty little colourways, with colours picked by hand. These are just a few of my favourites:
 
 ![Eight apps shown in By App and Zigzag styles, with enlarged yarn details](docs/collection/styles-comparison.png)
 
 Shown above in By App and Zigzag. Here’s everyone we’ve knitted for so far:
 
-- **Apple:** Finder, Safari, Mail, Messages, Notes, Calendar, Reminders, Apple Music, Photos, Preview, Terminal.
-- **Work and notes:** Notion, Paper, Granola, Microsoft Teams, Slack, Zoom.
-- **Coding and AI:** Cursor, VS Code, Claude, ChatGPT, Codex, Grok Bot, Ghostty.
+- **Apple:** Finder, Safari, Mail, Messages, Notes, Calendar, Reminders, Apple Music, Photos, Preview, Terminal, App Store, System Settings, Weather.
+- **Work and notes:** Notion, Paper, Granola, Microsoft Teams, Slack, Zoom, Willow Voice.
+- **Coding and AI:** Cursor, VS Code, Xcode, Android Studio, Claude, ChatGPT, Codex, Grok Bot, Ghostty, OpenCode, Google Antigravity.
 - **Design:** Figma, Adobe Photoshop, Adobe Illustrator.
 - **Microsoft Office:** Word, Excel, PowerPoint, Outlook.
-- **More favourites:** Spotify, WhatsApp, Google Chrome, Firefox, Telegram, Discord.
+- **More favourites:** Spotify, WhatsApp, Google Chrome, Firefox, Telegram, Discord, Beeper, YouTube Music, Proton VPN.
 
 See every sweater and its close-up stitches in the [catalogue](docs/COLLECTION.md), or download the [By App PDF](docs/catalogues/Window-Sweaters-Catalogue.pdf) and [Zigzag PDF](docs/catalogues/Window-Sweaters-Zigzag-Catalogue.pdf).
 

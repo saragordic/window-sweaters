@@ -17,7 +17,7 @@ static const char* const collection_names[] = {
   "atelier-spotify", "atelier-notion", "atelier-whatsapp", "atelier-figma",
   "atelier-chrome", "atelier-paper",
   "atelier-safari", "atelier-firefox", "atelier-cursor", "atelier-slack", "atelier-zoom", "atelier-telegram", "atelier-messages", "atelier-mail", "atelier-notes", "atelier-calendar", "atelier-reminders", "atelier-music", "atelier-photos", "atelier-preview", "atelier-word", "atelier-excel", "atelier-powerpoint", "atelier-outlook", "atelier-vscode", "atelier-photoshop", "atelier-illustrator",
-  "atelier-granola", "atelier-chatgpt", "atelier-ghostty", "braid", "blockstripe", "checker", "seedling", "trim", "picnic", "ribbon", "posy", "twinkle", "candy-stripe", "zigzag"
+  "atelier-granola", "atelier-chatgpt", "atelier-ghostty", "atelier-opencode", "atelier-beeper", "atelier-willow", "atelier-antigravity", "atelier-ytmusic", "atelier-protonvpn", "atelier-xcode", "atelier-appstore", "atelier-androidstudio", "atelier-settings", "atelier-weather", "braid", "blockstripe", "checker", "seedling", "trim", "picnic", "ribbon", "posy", "twinkle", "candy-stripe", "zigzag"
 };
 enum { COLLECTION_COUNT = sizeof collection_names / sizeof collection_names[0] };
 
@@ -64,7 +64,26 @@ static void test_apps(const char* home) {
   assert(strcmp(knit_app_rule("Google Chrome Helper")->chart, "atelier-chrome") == 0);
   assert(strcmp(knit_app_rule("Chrome")->chart, "atelier-chrome") == 0);
   assert(strcmp(knit_app_rule("Chromium")->chart, "atelier-chrome") == 0);
-  assert(CATALOGUE_COUNT == 37);
+  assert(CATALOGUE_COUNT == 48);
+  assert(strcmp(knit_app_rule("OpenCode Helper (Renderer)")->chart, "atelier-opencode") == 0);
+  assert(strcmp(knit_app_rule("Beeper Desktop")->chart, "atelier-beeper") == 0);
+  assert(strcmp(knit_app_rule("Beeper Helper")->chart, "atelier-beeper") == 0);
+  assert(strcmp(knit_app_rule("Willow Voice")->chart, "atelier-willow") == 0);
+  assert(strcmp(knit_app_rule("Antigravity Helper")->chart, "atelier-antigravity") == 0);
+  assert(strcmp(knit_app_rule("YT Music")->chart, "atelier-ytmusic") == 0);
+  assert(strcmp(knit_app_rule("YouTube Music")->chart, "atelier-ytmusic") == 0);
+  assert(strcmp(knit_app_rule("Music")->chart, "atelier-music") == 0);
+  assert(strcmp(knit_app_rule("ProtonVPN")->chart, "atelier-protonvpn") == 0);
+  assert(strcmp(knit_app_rule("Proton VPN")->chart, "atelier-protonvpn") == 0);
+  assert(knit_app_rule("Proton Mail") == NULL);
+  assert(strcmp(knit_app_rule("Xcode")->chart, "atelier-xcode") == 0);
+  assert(strcmp(knit_app_rule("Code")->chart, "atelier-vscode") == 0);
+  assert(strcmp(knit_app_rule("App Store")->chart, "atelier-appstore") == 0);
+  assert(strcmp(knit_app_rule("Android Studio")->chart, "atelier-androidstudio") == 0);
+  assert(strcmp(knit_app_rule("studio")->chart, "atelier-androidstudio") == 0);
+  assert(strcmp(knit_app_rule("System Settings")->chart, "atelier-settings") == 0);
+  assert(strcmp(knit_app_rule("System Preferences")->chart, "atelier-settings") == 0);
+  assert(strcmp(knit_app_rule("Weather")->chart, "atelier-weather") == 0);
   for (int i = 0; i < CATALOGUE_COUNT; i++) {
     const struct app_rule* rule = knit_app_rule(catalogue[i].match);
     assert(rule && strcmp(rule->chart, catalogue[i].chart) == 0);
@@ -79,6 +98,9 @@ static void test_apps(const char* home) {
   assert(strcmp(knit_app_rule(identity)->chart, "atelier-cursor") == 0);
   assert(knit_app_name_from_executable("/Applications/Cursor.app/Contents/MacOS/Electron", identity, sizeof identity));
   assert(strcmp(knit_app_rule(identity)->chart, "atelier-cursor") == 0);
+  assert(knit_app_name_from_executable("/Applications/Android Studio.app/Contents/MacOS/studio", identity, sizeof identity));
+  assert(strcmp(identity, "Android Studio") == 0);
+  assert(strcmp(knit_app_rule(identity)->chart, "atelier-androidstudio") == 0);
   assert(knit_app_name_from_executable(
       "/Applications/Visual Studio Code.app/Contents/MacOS/Electron", identity, sizeof identity));
   assert(strcmp(knit_app_rule(identity)->chart, "atelier-vscode") == 0);
@@ -90,6 +112,13 @@ static void test_apps(const char* home) {
   assert(!knit_app_name_from_executable(NULL, identity, sizeof identity));
   assert(!knit_app_name_from_executable("/Long.app/Contents/MacOS/Electron", identity, 2));
   assert(strcmp(identity, "Other App") == 0);
+  assert(knit_app_name_from_bundle("/Users/keith/Applications/YT Music.app", identity, sizeof identity));
+  assert(strcmp(identity, "YT Music") == 0);
+  assert(strcmp(knit_app_rule(identity)->chart, "atelier-ytmusic") == 0);
+  assert(knit_app_name_from_bundle("/Applications/YouTube Music.app/", identity, sizeof identity));
+  assert(strcmp(knit_app_rule(identity)->chart, "atelier-ytmusic") == 0);
+  assert(!knit_app_name_from_bundle("/usr/bin/Web App", identity, sizeof identity));
+  assert(!knit_app_name_from_webapp(0, identity, sizeof identity));
   assert(knit_app_rule(NULL) == NULL);
   assert(knit_app_rule("") == NULL);
   assert(knit_app_rule("Unknown App") == NULL);
@@ -185,7 +214,7 @@ static void test_preserved_charts(void) {
 }
 
 static void test_charts(const char* dir) {
-  assert(COLLECTION_COUNT == 47);
+  assert(COLLECTION_COUNT == 58);
   assert(knit_charts_load("/does-not-exist/knit-test") == COLLECTION_COUNT);
   for (int i = 0; i < COLLECTION_COUNT; i++) {
     assert(knit_chart_index(collection_names[i]) == i); // names are unique and stable
@@ -213,6 +242,7 @@ static void test_charts(const char* dir) {
   assert(g_charts[knit_chart_index("atelier-whatsapp")].solid_corners);
   assert(!g_charts[knit_chart_index("atelier-claude")].solid_corners);
   assert(g_charts[knit_chart_index("atelier-messages")].round_dots);
+  assert(g_charts[knit_chart_index("atelier-weather")].round_dots);
   assert(g_charts[knit_chart_index("atelier-chrome")].corner_color == 0);
   assert(g_charts[knit_chart_index("atelier-spotify")].sculpted_yarn);
   write_png(dir, "atelier-spotify");
@@ -290,6 +320,6 @@ int main(void) {
   assert(rmdir(support) == 0);
   assert(rmdir(library) == 0);
   assert(rmdir(home) == 0);
-  puts("Collection tests passed: 37 app profiles, 47 valid charts, strict parsing, app precedence, By App/global/plain patterns, Chrome, overrides, stable reloads.");
+  puts("Collection tests passed: 48 app profiles, 58 valid charts, strict parsing, app precedence, By App/global/plain patterns, Chrome, overrides, stable reloads.");
   return 0;
 }

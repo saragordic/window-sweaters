@@ -6,6 +6,8 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/sysctl.h>
+#include <unistd.h>
 
 struct app_rule g_app_rules[KNIT_APP_RULES_MAX];
 int g_app_rule_count = 0;
@@ -58,6 +60,21 @@ static const struct app_rule k_collection[] = {
   { "Granola", 0xff292e2au, "atelier-granola" },
   { "Terminal", 0xff303c35u, "atelier-terminal" },
   { "ghostty", 0xff2b3350u, "atelier-ghostty" },
+  { "OpenCode",        0xff262220u, "atelier-opencode" },
+  { "Beeper",          0xff6a4be5u, "atelier-beeper" },
+  { "Willow",          0xffeae3ffu, "atelier-willow" },
+  { "Antigravity",     0xff121214u, "atelier-antigravity" },
+  { "YT Music",        0xffff0033u, "atelier-ytmusic" },
+  { "YouTube Music",   0xffff0033u, "atelier-ytmusic" },
+  { "ProtonVPN",       0xff6d4affu, "atelier-protonvpn" },
+  { "Proton VPN",      0xff6d4affu, "atelier-protonvpn" },
+  { "Xcode",           0xff178ce8u, "atelier-xcode" },
+  { "App Store",       0xff0b7fffu, "atelier-appstore" },
+  { "Android Studio",  0xff3d7effu, "atelier-androidstudio" },
+  { "studio",          0xff3d7effu, "atelier-androidstudio" },
+  { "System Settings", 0xffc9c9ceu, "atelier-settings" },
+  { "System Preferences", 0xffc9c9ceu, "atelier-settings" },
+  { "Weather",         0xff2f84e8u, "atelier-weather" },
 };
 
 static const char* k_default_conf =
@@ -72,7 +89,7 @@ static const char* k_default_conf =
   "#\n"
   "# Edit, then restart Window Sweaters to load your changes.\n"
   "\n"
-  "# 37 apps already have their own yarn and chart; see docs/COLLECTION.md.\n"
+  "# 48 apps already have their own yarn and chart; see docs/COLLECTION.md.\n"
   "# Uncomment to customize:\n"
   "# Claude = #D58561 atelier-claude\n";
 
@@ -203,4 +220,52 @@ bool knit_app_name_from_executable(const char* path, char* output, size_t capaci
   memcpy(output, start, length);
   output[length] = '\0';
   return true;
+}
+
+bool knit_app_name_from_bundle(const char* path, char* output, size_t capacity) {
+  if (!path || !output || !capacity) return false;
+  const char* marker = NULL;
+  for (const char* p = path; (p = strstr(p, ".app")); p += 4) {
+    if (!p[4] || p[4] == '/') { marker = p; break; }
+  }
+  if (!marker) return false;
+  const char* start = marker;
+  while (start > path && start[-1] != '/') start--;
+  size_t length = (size_t)(marker - start);
+  if (!length || length >= capacity) return false;
+  memcpy(output, start, length);
+  output[length] = '\0';
+  return true;
+}
+
+bool knit_app_name_from_webapp(pid_t pid, char* output, size_t capacity) {
+  if (pid <= 0 || !output || !capacity) return false;
+  int mib[3] = { CTL_KERN, KERN_PROCARGS2, pid };
+  size_t size = 0;
+  if (sysctl(mib, 3, NULL, &size, NULL, 0) != 0 || size < sizeof(int) + 8) return false;
+  char* buf = malloc(size);
+  if (!buf) return false;
+  bool ok = false;
+  if (sysctl(mib, 3, buf, &size, NULL, 0) == 0) {
+    int argc = 0;
+    memcpy(&argc, buf, sizeof argc);
+    char* p = buf + sizeof(int);
+    char* end = buf + size;
+    while (p < end && *p) p++;
+    if (p < end) p++;
+    while (p < end && *p == '\0') p++;
+    bool take = false;
+    for (int i = 0; i < argc && p < end; i++) {
+      char* arg = p;
+      while (p < end && *p) p++;
+      if (p < end) p++;
+      if (take) {
+        ok = knit_app_name_from_bundle(arg, output, capacity);
+        break;
+      }
+      if (strcmp(arg, "--bundlepath") == 0) take = true;
+    }
+  }
+  free(buf);
+  return ok;
 }

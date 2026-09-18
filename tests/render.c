@@ -281,11 +281,12 @@ static void individual_review(const char* directory) {
 
 static void catalogue_preview(const char* directory, bool revised) {
   const int selected[] = {1, 3, 8, 14, 20, 28, 34};
-  const int starts[] = {0, 8, 15, 22, 29, CATALOGUE_COUNT};
+  const int starts[] = {0, 8, 15, 22, 29, 37, 45, CATALOGUE_COUNT};
   const char* titles[] = {"The collection / 01", "The collection / 02",
-    "The collection / 03", "The collection / 04", "The collection / 05"};
+    "The collection / 03", "The collection / 04", "The collection / 05",
+    "The collection / 06", "The collection / 07"};
   knit_charts_load(NULL);
-  for (int page = 0; page < (revised ? 1 : 5); page++) {
+    for (int page = 0; page < (revised ? 1 : 7); page++) {
     CGContextRef c = canvas(1120, 1370, 2);
     CGContextSetRGBFillColor(c, .977, .969, .953, 1);
     CGContextFillRect(c, CGRectMake(0, 0, 1120, 1370));
@@ -461,7 +462,7 @@ static void verify_corners(void) {
         }
         CGContextRelease(actual); CGContextRelease(mask);
       }
-  puts("PASS: all 37 profiles, unchanged 10 pt width, all four opaque corners, square/rounded/clamped radii at 1x/2x");
+  puts("PASS: all 48 profiles, unchanged 10 pt width, all four opaque corners, square/rounded/clamped radii at 1x/2x");
 }
 
 // A contrasting test fabric exposes the exact patch boundary independently
