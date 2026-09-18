@@ -159,6 +159,14 @@ void knit_apply(const char* arg) {
 
 float knit_current_width(void) { return g_settings.border_width; }
 
+// Called by the menu after it turns an app on or off.
+void knit_apps_filter_changed(void) { windows_apply_app_filter(&g_windows); }
+
+// Owners of every window that could wear a sweater, for the Apps menu.
+int knit_window_owners(int* pids, int capacity) {
+  return windows_eligible_owners(pids, capacity);
+}
+
 extern void knit_menubar_start(void);
 extern void knit_menubar_prepare(void);
 extern void knit_application_prepare(void);

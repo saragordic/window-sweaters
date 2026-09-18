@@ -48,3 +48,29 @@ bool knit_pattern_select(const char* name);
 /// Resolve a generic Electron executable to its containing app's filename.
 /// Leaves output untouched on failure. Called only when a window is discovered.
 bool knit_app_name_from_executable(const char* path, char* output, size_t capacity);
+
+// Which apps wear sweaters, chosen in the Apps menu.
+//
+// A default for every app (on, or off after "Turn Off for All Apps") plus the
+// apps ticked the other way. Keyed by bundle identifier, the one name macOS
+// keeps stable across localisation, renames and self-updates. Kept apart from
+// the startup script's blacklist=/whitelist= so neither can overwrite the
+// other; a window must pass both. Main thread only; asserted.
+
+bool knit_apps_on_by_default(void);
+/// Every app on, or every app off, forgetting individual choices. Returns
+/// true only if this changed anything.
+bool knit_apps_set_all(bool on);
+bool knit_app_hidden(const char* bundle_id);
+/// Returns true only if this changed anything. No length or count limit, so
+/// a click on any listed app always takes effect.
+bool knit_app_set_hidden(const char* bundle_id, bool hidden);
+/// The apps that differ from the default, in the order they were chosen.
+int knit_app_exception_count(void);
+const char* knit_app_exception(int index);
+
+/// Whether a window owned by this process should go without a sweater. Free
+/// while every app is on, the usual case. The owner is asked of AppKit, never
+/// parsed from a path. A process without a bundle identifier cannot be
+/// listed, so it follows the default.
+bool knit_pid_hidden(int pid);

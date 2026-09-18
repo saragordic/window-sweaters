@@ -21,7 +21,10 @@ static bool window_in_list(struct table* list, char* app_name) {
   return false;
 }
 
-static bool app_allowed(struct settings* settings, char* app_name) {
+// The one gate every border passes before it exists: new windows, existing
+// windows, reconciliation and the menu's per-app switch all come through here.
+static bool app_allowed(struct settings* settings, char* app_name, pid_t pid) {
+  if (knit_pid_hidden(pid)) return false;
   if (settings->whitelist_enabled
       && !window_in_list(&settings->whitelist, app_name)) {
     return false;
@@ -52,7 +55,7 @@ bool windows_window_create(struct table* windows, uint32_t wid, uint64_t sid) {
   }
 
 
-  if (pid == g_pid || !app_allowed(&g_settings, pid_name_buffer)) return false;
+  if (pid == g_pid || !app_allowed(&g_settings, pid_name_buffer, pid)) return false;
 
   CFArrayRef target_ref = cfarray_of_cfnumbers(&wid,
                                                sizeof(uint32_t),
@@ -107,6 +110,8 @@ bool windows_window_create(struct table* windows, uint32_t wid, uint64_t sid) {
   return window_created;
 }
 
+void windows_add_missing_windows(struct table* windows);
+
 static void windows_remove_all(struct table* windows) {
   for (int i = 0; i < windows->capacity; ++i) {
     struct bucket* bucket = windows->buckets[i];
@@ -120,6 +125,29 @@ static void windows_remove_all(struct table* windows) {
   }
   table_clear(windows);
   windows_update_notifications(windows);
+}
+
+// Apply a changed app list without touching anyone else's border: drop the
+// borders that no longer pass the gate, then add only windows not yet tracked.
+// Rebuilding everything would make every sweater on screen flicker.
+void windows_apply_app_filter(struct table* windows) {
+  uint32_t* removed = windows->count ? malloc(sizeof(*removed) * windows->count) : NULL;
+  if (windows->count && !removed) return;
+  int count = 0;
+  for (int i = 0; i < windows->capacity; ++i) {
+    for (struct bucket* bucket = windows->buckets[i]; bucket; bucket = bucket->next) {
+      struct border* border = bucket->value;
+      if (border && !border->is_proxy
+          && !app_allowed(&g_settings, border->app, border->owner_pid))
+        removed[count++] = *(uint32_t*)bucket->key;
+    }
+  }
+  for (int i = 0; i < count; i++) windows_window_destroy(windows, removed[i], 0);
+  free(removed);
+  windows_add_missing_windows(windows);
+  // New borders start unfocused; nothing else will correct that until the
+  // next window event, so a re-enabled front window would look inactive.
+  windows_determine_and_focus_active_window(windows);
 }
 
 void windows_recreate_all_borders(struct table* windows) {
@@ -429,8 +457,11 @@ void windows_draw_borders_on_current_spaces(struct table* windows) {
   CFRelease(space_list_ref);
 }
 
-void windows_add_existing_windows(struct table* windows) {
-  int cid = SLSMainConnectionID();
+// Every window on every Space that could wear a sweater, before any app is
+// asked whether it wants one. Returns the count; the caller frees *out.
+static int windows_copy_suitable(int cid, uint32_t** out) {
+  *out = NULL;
+  int found = 0;
   uint64_t* space_list = NULL;
   int space_count = 0;
 
@@ -476,18 +507,15 @@ void windows_add_existing_windows(struct table* windows) {
                                                                 &clear_tags  );
   if (window_list_ref) {
     int count = CFArrayGetCount(window_list_ref);
-    if (count > 0) {
+    if (count > 0 && (*out = malloc(sizeof(**out) * (size_t)count))) {
       CFTypeRef query = SLSWindowQueryWindows(cid, window_list_ref, 0x0);
       CFTypeRef iterator = SLSWindowQueryResultCopyWindows(query);
 
-      while (SLSWindowIteratorAdvance(iterator)) {
-        if (window_suitable(iterator)) {
-          uint32_t wid = SLSWindowIteratorGetWindowID(iterator);
-          windows_window_create(windows, wid, window_space_id(cid, wid));
-        }
+      while (SLSWindowIteratorAdvance(iterator) && found < count) {
+        if (window_suitable(iterator))
+          (*out)[found++] = SLSWindowIteratorGetWindowID(iterator);
       }
 
-      windows_update_notifications(windows);
       CFRelease(query);
       CFRelease(iterator);
     }
@@ -495,4 +523,48 @@ void windows_add_existing_windows(struct table* windows) {
   }
   CFRelease(space_list_ref);
   free(space_list);
+  return found;
+}
+
+static void windows_add_windows(struct table* windows, bool only_missing) {
+  int cid = SLSMainConnectionID();
+  uint32_t* suitable;
+  int count = windows_copy_suitable(cid, &suitable);
+  for (int i = 0; i < count; i++) {
+    uint32_t wid = suitable[i];
+    if (!only_missing || !table_find(windows, &wid))
+      windows_window_create(windows, wid, window_space_id(cid, wid));
+  }
+  if (count) windows_update_notifications(windows);
+  free(suitable);
+}
+
+// The processes owning a window that could wear a sweater, whether or not it
+// wears one now. The Apps menu lists these, so an app switched off never drops
+// out of the list, however it presents itself (no Dock icon, say).
+int windows_eligible_owners(int* pids, int capacity) {
+  int cid = SLSMainConnectionID();
+  uint32_t* suitable;
+  int count = windows_copy_suitable(cid, &suitable);
+  int owners = 0;
+  for (int i = 0; i < count; i++) {
+    int owner_cid = 0;
+    pid_t pid = 0;
+    SLSGetWindowOwner(cid, suitable[i], &owner_cid);
+    SLSConnectionGetPID(owner_cid, &pid);
+    if (pid <= 0 || pid == g_pid) continue;
+    int seen = 0;
+    while (seen < owners && pids[seen] != pid) seen++;
+    if (seen == owners && owners < capacity) pids[owners++] = pid;
+  }
+  free(suitable);
+  return owners;
+}
+
+void windows_add_existing_windows(struct table* windows) {
+  windows_add_windows(windows, false);
+}
+
+void windows_add_missing_windows(struct table* windows) {
+  windows_add_windows(windows, true);
 }

@@ -14,6 +14,7 @@
 - (NSInteger)integerForKey:(NSString*)key;
 - (float)floatForKey:(NSString*)key;
 - (NSString*)stringForKey:(NSString*)key;
+- (id)objectForKey:(NSString*)key;
 @end
 @implementation KnitTestDefaults
 + (instancetype)standardUserDefaults {
@@ -32,11 +33,42 @@
 - (NSInteger)integerForKey:(NSString*)key { return [self.values[key] integerValue]; }
 - (float)floatForKey:(NSString*)key { return [self.values[key] floatValue]; }
 - (NSString*)stringForKey:(NSString*)key { return self.values[key]; }
+- (id)objectForKey:(NSString*)key { return self.values[key]; }
 @end
 
 #define NSUserDefaults KnitTestDefaults
+#define KNIT_MENU_TEST_APPS
 #include "../src/menubar.m"
 #undef NSUserDefaults
+
+// Apps are faked: tests must not depend on what happens to be running.
+static NSMutableArray<KnitMenuApp*>* running_apps;
+static NSMutableSet<NSNumber*>* window_owners;
+static int filter_changes;
+static pid_t next_pid = 1000;
+static KnitMenuApp* app_with(NSString* bundleID, NSString* name, BOOL regular) {
+  KnitMenuApp* app = [KnitMenuApp new];
+  app.bundleID = bundleID;
+  app.name = name;
+  app.regular = regular;
+  app.pid = next_pid++;
+  return app;
+}
+static KnitMenuApp* fake_app(NSString* bundleID, NSString* name) { return app_with(bundleID, name, YES); }
+static NSArray<KnitMenuApp*>* knit_menu_candidates(void) { return running_apps; }
+static NSSet<NSNumber*>* knit_menu_window_owners(void) { return window_owners; }
+void knit_apps_filter_changed(void) { filter_changes++; }
+static NSArray<NSString*>* titles(NSMenu* menu) {
+  NSMutableArray* result = [NSMutableArray array];
+  for (NSMenuItem* item in menu.itemArray) [result addObject:item.isSeparatorItem ? @"-" : item.title];
+  return result;
+}
+static NSArray* saved_exceptions(void) {
+  return [[KnitTestDefaults standardUserDefaults] objectForKey:@"appExceptions"];
+}
+static bool saved_on_by_default(void) {
+  return [[KnitTestDefaults standardUserDefaults] boolForKey:@"appsOnByDefault"];
+}
 
 struct knit_gauge g_knit = {.rows = 6};
 int g_knit_stitch, g_knit_basket, g_knit_anchor;
@@ -103,10 +135,122 @@ static int checked_count(NSMenu* menu) {
 static void check_actions(NSMenu* menu) {
   for (NSMenuItem* item in menu.itemArray) {
     if (item.isSeparatorItem) continue;
-    assert(item.enabled);
+    if (item.tag == KNIT_MENU_HEADER_TAG) { assert(!item.enabled && !item.action); continue; }
+    // Only the two resets may be dimmed, and only when they would change nothing.
+    assert(item.enabled || item.action == @selector(setAllApps:));
     if (item.submenu) { assert(item.submenu.numberOfItems > 0); check_actions(item.submenu); }
     else assert(item.action && item.target);
   }
+}
+
+static NSArray<NSString*>* listed(NSArray<KnitMenuApp*>* apps) {
+  NSMutableArray* names = [NSMutableArray array];
+  for (KnitMenuApp* app in apps) [names addObject:app.name];
+  return names;
+}
+
+static void test_listing(void) {
+  knit_apps_set_all(true);
+  KnitMenuApp* safari = app_with(@"com.apple.Safari", @"Safari", YES);
+  KnitMenuApp* raycast = app_with(@"com.raycast.macos", @"Raycast", NO);   // menu bar only
+  KnitMenuApp* agent = app_with(@"com.example.agent", @"Agent", NO);       // no windows
+  KnitMenuApp* nameless = app_with(@"com.example.nameless", @"", YES);
+  KnitMenuApp* anonymous = app_with(nil, @"Script", YES);                  // no identifier
+  KnitMenuApp* second = app_with(@"com.apple.Safari", @"Safari", YES);     // another copy
+  KnitMenuApp* itself = app_with(@"local.knitborders.app", @"Window Sweaters", YES);
+  NSArray* all = @[safari, raycast, agent, nameless, anonymous, second, itself];
+  NSSet* owners = [NSSet setWithObjects:@(raycast.pid), nil];
+
+  // Dock apps and window owners; never ourselves, never twice, never unnamed.
+  assert([listed(knit_menu_apps(all, owners, itself.pid))
+          isEqualToArray:(@[@"com.example.nameless", @"Raycast", @"Safari"])]);
+  // A menu bar app is found through its window, even with no sweater on it:
+  // turning everything off must not make it unreachable.
+  knit_apps_set_all(false);
+  assert([listed(knit_menu_apps(all, owners, itself.pid)) containsObject:@"Raycast"]);
+  // Once its window closes, a choice made for it keeps it listed while it runs.
+  knit_app_set_hidden("com.raycast.macos", false);
+  assert([listed(knit_menu_apps(all, [NSSet set], itself.pid)) containsObject:@"Raycast"]);
+  assert(![listed(knit_menu_apps(all, [NSSet set], itself.pid)) containsObject:@"Agent"]);
+  knit_apps_set_all(true);
+  assert(![listed(knit_menu_apps(all, [NSSet set], itself.pid)) containsObject:@"Raycast"]);
+}
+
+static void test_apps(KnitMenu* controller, NSMenu* menu) {
+  KnitTestDefaults* defaults = [KnitTestDefaults standardUserDefaults];
+  knit_apps_set_all(true);
+  running_apps = [NSMutableArray arrayWithArray:@[
+    fake_app(@"com.apple.Safari", @"Safari"), fake_app(@"com.figma.Desktop", @"Figma"),
+    fake_app(@"com.apple.finder", @"finder")]];
+  [controller rebuild:menu];
+  assert([menu indexOfItemWithTitle:@"Apps"] == 1);   // directly under the master switch
+  NSMenu* apps = submenu(menu, @"Apps");
+  // Case-insensitive, localised order; every app starts on; nothing to turn on.
+  assert([titles(apps) isEqualToArray:(@[@"Figma", @"finder", @"Safari", @"-",
+                                          @"Turn On for All Apps", @"Turn Off for All Apps"])]);
+  assert(checked_count(apps) == 3);
+  assert(![apps itemWithTitle:@"Turn On for All Apps"].enabled);
+  assert([apps itemWithTitle:@"Turn Off for All Apps"].enabled);
+  check_actions(menu);
+
+  filter_changes = 0;
+  [controller toggleApp:[apps itemWithTitle:@"Safari"]];
+  assert(knit_app_hidden("com.apple.Safari") && filter_changes == 1);
+  assert(saved_on_by_default() && [saved_exceptions() isEqualToArray:@[@"com.apple.Safari"]]);
+  [controller rebuild:menu];
+  apps = submenu(menu, @"Apps");
+  assert([apps itemWithTitle:@"Safari"].state == NSControlStateValueOff);
+  assert(checked_count(apps) == 2);
+  assert([apps itemWithTitle:@"Turn On for All Apps"].enabled);   // both now do something
+  assert([apps itemWithTitle:@"Turn Off for All Apps"].enabled);
+  check_actions(menu);
+
+  // Turning it back on is the same click, and is saved the same way.
+  [controller toggleApp:[apps itemWithTitle:@"Safari"]];
+  assert(!knit_app_hidden("com.apple.Safari") && filter_changes == 2);
+  assert([saved_exceptions() count] == 0);
+
+  // All off: every app unticked, then pick the few that should keep theirs.
+  [controller setAllApps:[apps itemWithTitle:@"Turn Off for All Apps"]];
+  assert(filter_changes == 3 && !knit_apps_on_by_default() && !saved_on_by_default());
+  [controller rebuild:menu];
+  apps = submenu(menu, @"Apps");
+  assert(checked_count(apps) == 0);
+  assert([apps itemWithTitle:@"Turn On for All Apps"].enabled);
+  assert(![apps itemWithTitle:@"Turn Off for All Apps"].enabled);
+  check_actions(menu);
+  [controller toggleApp:[apps itemWithTitle:@"Figma"]];
+  assert(!knit_app_hidden("com.figma.Desktop") && knit_app_hidden("com.apple.Safari"));
+  assert(!saved_on_by_default() && [saved_exceptions() isEqualToArray:@[@"com.figma.Desktop"]]);
+  [controller rebuild:menu];
+  apps = submenu(menu, @"Apps");
+  assert(checked_count(apps) == 1 && [apps itemWithTitle:@"Figma"].state == NSControlStateValueOn);
+
+  // Restored at launch, in both modes; anything malformed is ignored.
+  knit_apps_set_all(true);
+  knit_load_prefs();
+  assert(!knit_apps_on_by_default() && !knit_app_hidden("com.figma.Desktop")
+         && knit_app_hidden("com.apple.Safari"));
+
+  filter_changes = 0;
+  [controller setAllApps:[apps itemWithTitle:@"Turn On for All Apps"]];
+  assert(knit_apps_on_by_default() && knit_app_exception_count() == 0 && filter_changes == 1);
+  assert(saved_on_by_default() && [saved_exceptions() count] == 0);
+  [controller setAllApps:[apps itemWithTitle:@"Turn On for All Apps"]];   // no change, no redraw
+  assert(filter_changes == 1);
+
+  [defaults setObject:@[@"com.apple.Safari", @42, @"", @"com.apple.Safari"] forKey:@"appExceptions"];
+  knit_load_prefs();
+  assert(knit_app_exception_count() == 1 && knit_app_hidden("com.apple.Safari"));
+  [defaults setObject:@"not a list" forKey:@"appExceptions"];
+  knit_load_prefs();
+  assert(knit_app_exception_count() == 0 && !knit_app_hidden("com.apple.Safari"));
+
+  running_apps = [NSMutableArray array];
+  [controller rebuild:menu];
+  assert([titles(submenu(menu, @"Apps")) isEqualToArray:(@[@"No Available Apps", @"-",
+          @"Turn On for All Apps", @"Turn Off for All Apps"])]);
+  knit_apps_set_all(true);
 }
 
 int main(void) {
@@ -137,7 +281,7 @@ int main(void) {
     NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Test"];
     menu.autoenablesItems = NO;
     [controller rebuild:menu];
-    NSArray* expected = @[@"Show Sweater Borders", @"Pattern", @"Border Width", @"Stitch Size",
+    NSArray* expected = @[@"Show Sweater Borders", @"Apps", @"Pattern", @"Border Width", @"Stitch Size",
                          @"", @"Quit Window Sweaters"];
     assert(menu.numberOfItems == expected.count);
     for (NSInteger i = 0; i < menu.numberOfItems; i++)
@@ -227,6 +371,9 @@ int main(void) {
     knit_load_prefs();
     assert(g_knit_pattern_by_app && g_knit.rows == 6);
     assert([[KnitTestDefaults standardUserDefaults] floatForKey:@"gauge"] == 6);
+    test_listing();
+    test_apps(controller, menu);
+    puts("PASS: per-app switches: listing rules, sorted, truthful, persisted, reversible, all on and all off");
     puts("PASS: native menu structure, truthful state, working selections, chart filtering, gauge limits, cached swatches");
   }
   return 0;

@@ -68,3 +68,18 @@ Automatic sweaters use two yarns. Pattern shape is a stable hash of the app
 name, independent of icon colour. Colourless icons retain the existing name-
 based fallback. The cache holds 64 recent processes; a full chart table can
 retain the icon colour without a motif until chart space is available.
+
+## Choosing apps in the menu
+
+`app_allowed()` in `src/windows.c` is the only place a border can be refused,
+and every path that creates one goes through it. `src/hidden.m` holds a default
+(all apps on, or all off) plus the apps ticked the other way, keyed by bundle
+identifier and resolved through `NSRunningApplication`, never from the
+executable path. This is kept apart from the startup script's
+`blacklist=`/`whitelist=`, so neither overwrites the other. A change calls
+`windows_apply_app_filter()`, which removes and adds only the affected windows
+rather than rebuilding every border, then settles focus again. The Apps menu
+lists Dock apps, any app owning a window that could wear a sweater (worn now
+or not), and any running app ticked the other way; that rule is
+`knit_menu_apps()` and is tested directly. `tests/app_filter.m` drives the
+real `windows.c` and `hidden.m` against a scripted WindowServer.

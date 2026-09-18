@@ -5,6 +5,7 @@
 // app to keep in sync.
 
 #import <Cocoa/Cocoa.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "misc/knit.h"
 #include "misc/chart.h"
 #include "misc/apps.h"
@@ -12,7 +13,78 @@
 #include <stdio.h>
 
 extern void knit_apply(const char* arg);   // main.c: feeds one "key=value"
+extern void knit_apps_filter_changed(void); // main.c: re-run the app gate
 extern bool g_knit_on;
+
+enum { KNIT_MENU_HEADER_TAG = 0x6864 };   // a label, not a command
+
+// One running app, as the Apps menu sees it. Read from AppKit, faked in tests.
+@interface KnitMenuApp : NSObject
+@property(copy) NSString* bundleID;
+@property(copy) NSString* name;
+@property(strong) NSImage* icon;
+@property pid_t pid;
+@property BOOL regular;   // has a Dock icon
+@end
+@implementation KnitMenuApp
+@end
+
+static NSArray<KnitMenuApp*>* knit_menu_candidates(void);   // every running app
+static NSSet<NSNumber*>* knit_menu_window_owners(void);     // pids with eligible windows
+
+// Which running apps the Apps menu lists, sorted by name: those in the Dock,
+// any app owning a window that could wear a sweater (worn now or not), and any
+// app ticked the other way, so a choice can always be undone while it runs.
+static NSArray<KnitMenuApp*>* knit_menu_apps(NSArray<KnitMenuApp*>* candidates,
+                                             NSSet<NSNumber*>* owners, pid_t own) {
+  NSMutableArray<KnitMenuApp*>* apps = [NSMutableArray array];
+  NSMutableSet<NSString*>* seen = [NSMutableSet set];
+  for (KnitMenuApp* app in candidates) {
+    if (app.pid == own || !app.bundleID.length || [seen containsObject:app.bundleID]) continue;
+    bool chosen = knit_app_hidden(app.bundleID.UTF8String) == knit_apps_on_by_default();
+    if (!app.regular && ![owners containsObject:@(app.pid)] && !chosen) continue;
+    [seen addObject:app.bundleID];
+    if (!app.name.length) app.name = app.bundleID;
+    [apps addObject:app];
+  }
+  [apps sortUsingComparator:^NSComparisonResult(KnitMenuApp* a, KnitMenuApp* b) {
+    return [a.name localizedStandardCompare:b.name];
+  }];
+  return apps;
+}
+
+#ifndef KNIT_MENU_TEST_APPS
+extern int knit_window_owners(int* pids, int capacity);  // main.c
+
+static NSImage* knit_menu_app_icon(NSImage* icon) {
+  if (!icon) icon = [NSWorkspace.sharedWorkspace iconForContentType:UTTypeApplicationBundle];
+  NSImage* small = [icon copy];     // never resize the shared system icon
+  small.size = NSMakeSize(16, 16);
+  return small;
+}
+
+static NSArray<KnitMenuApp*>* knit_menu_candidates(void) {
+  NSMutableArray<KnitMenuApp*>* apps = [NSMutableArray array];
+  for (NSRunningApplication* running in NSWorkspace.sharedWorkspace.runningApplications) {
+    KnitMenuApp* app = [KnitMenuApp new];
+    app.bundleID = running.bundleIdentifier;
+    app.name = running.localizedName;
+    app.icon = knit_menu_app_icon(running.icon);
+    app.pid = running.processIdentifier;
+    app.regular = running.activationPolicy == NSApplicationActivationPolicyRegular;
+    [apps addObject:app];
+  }
+  return apps;
+}
+
+static NSSet<NSNumber*>* knit_menu_window_owners(void) {
+  int pids[1024];
+  int count = knit_window_owners(pids, 1024);
+  NSMutableSet<NSNumber*>* owners = [NSMutableSet set];
+  for (int i = 0; i < count; i++) [owners addObject:@(pids[i])];
+  return owners;
+}
+#endif
 
 static bool knit_menu_chart_valid(int index) {
   return index >= 0 && index < g_chart_count && g_charts[index].px
@@ -105,13 +177,18 @@ static void knit_save_prefs(void) {
         forKey:@"chart"];
   [d setBool:g_knit_pattern_by_app forKey:@"patternByApp"];
   [d setInteger:g_knit_anchor forKey:@"anchor"];
+  NSMutableArray* exceptions = [NSMutableArray array];
+  for (int i = 0; i < knit_app_exception_count(); i++)
+    [exceptions addObject:@(knit_app_exception(i))];
+  [d setBool:knit_apps_on_by_default() forKey:@"appsOnByDefault"];
+  [d setObject:exceptions forKey:@"appExceptions"];
 }
 
 static void knit_load_prefs(void) {
   NSUserDefaults* d = NSUserDefaults.standardUserDefaults;
   // Older versions saved a global chart even while app profiles overrode it.
   // A missing mode therefore migrates to By App, preserving those sweaters.
-  [d registerDefaults:@{ @"on": @YES, @"yarn": @0, @"basket": @3, @"width": @12.0f, @"gauge": @6.0f, @"chart": @"none", @"patternByApp": @YES, @"anchor": @0 }];
+  [d registerDefaults:@{ @"on": @YES, @"yarn": @0, @"basket": @3, @"width": @12.0f, @"gauge": @6.0f, @"chart": @"none", @"patternByApp": @YES, @"anchor": @0, @"appsOnByDefault": @YES, @"appExceptions": @[] }];
   char buf[128];
 
   NSInteger y = [d integerForKey:@"yarn"];
@@ -147,6 +224,17 @@ static void knit_load_prefs(void) {
              ? "anchor=centre" : "anchor=corner");
 
   knit_apply([d boolForKey:@"on"] ? "knit=on" : "knit=off");
+
+  // Restored before any window is discovered, so a switched-off app never
+  // flashes a sweater at launch. Anything malformed is skipped, not trusted.
+  bool on = [d boolForKey:@"appsOnByDefault"];
+  knit_apps_set_all(on);
+  id exceptions = [d objectForKey:@"appExceptions"];
+  if ([exceptions isKindOfClass:NSArray.class]) {
+    for (id bundleID in exceptions)
+      if ([bundleID isKindOfClass:NSString.class])
+        knit_app_set_hidden([bundleID UTF8String], on);   // the other way from the default
+  }
 }
 
 
@@ -199,15 +287,80 @@ static void knit_load_prefs(void) {
     [NSProcessInfo.processInfo endActivity:self.activity];
     self.activity = nil;
   }
-  self.item.button.alphaValue = g_knit_on ? 1.0 : 0.45;
-  self.item.button.toolTip = g_knit_on ? @"Window Sweaters — sweaters are on"
-                                      : @"Window Sweaters — sweaters are off";
+  // "Every app off" looks the same on screen as paused, so say which it is,
+  // in the tooltip and to VoiceOver, never by dimming alone.
+  bool noApps = !knit_apps_on_by_default() && knit_app_exception_count() == 0;
+  NSString* status = !g_knit_on ? @"Sweaters are paused"
+                   : noApps     ? @"Sweaters are off for all apps"
+                                : @"Sweaters are on";
+  self.item.button.alphaValue = g_knit_on && !noApps ? 1.0 : 0.45;
+  self.item.button.toolTip = [@"Window Sweaters — " stringByAppendingString:status.lowercaseString];
+  [self.item.button setAccessibilityValue:status];
 }
 
 - (void)toggle:(NSMenuItem*)sender {
   knit_apply(g_knit_on ? "knit=off" : "knit=on");
   knit_save_prefs();
   [self updateStatus];
+}
+
+- (void)toggleApp:(NSMenuItem*)sender {
+  const char* bundleID = [sender.representedObject UTF8String];
+  if (!knit_app_set_hidden(bundleID, !knit_app_hidden(bundleID))) return;
+  knit_save_prefs();
+  knit_apps_filter_changed();
+  [self updateStatus];
+}
+
+- (void)setAllApps:(NSMenuItem*)sender {
+  if (!knit_apps_set_all([sender.representedObject boolValue])) return;
+  knit_save_prefs();
+  knit_apps_filter_changed();
+  [self updateStatus];
+}
+
+- (NSMenuItem*)addApp:(KnitMenuApp*)app to:(NSMenu*)menu {
+  NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:app.name
+                                                action:@selector(toggleApp:)
+                                         keyEquivalent:@""];
+  item.target = self;
+  item.representedObject = app.bundleID;
+  item.image = app.icon;
+  item.state = knit_app_hidden(app.bundleID.UTF8String) ? NSControlStateValueOff
+                                                        : NSControlStateValueOn;
+  item.enabled = YES;
+  [menu addItem:item];
+  return item;
+}
+
+- (void)addHeader:(NSString*)title to:(NSMenu*)menu {
+  NSMenuItem* header;
+  if (@available(macOS 14.0, *)) header = [NSMenuItem sectionHeaderWithTitle:title];
+  else header = [[NSMenuItem alloc] initWithTitle:title action:nil keyEquivalent:@""];
+  header.enabled = NO;
+  header.tag = KNIT_MENU_HEADER_TAG;
+  [menu addItem:header];
+}
+
+// Every open app, ticked while it wears a sweater, then the two ways to reset
+// them all. Each reset is dimmed when it would change nothing, so the pair
+// also shows at a glance whether everything is on or off.
+- (void)buildApps:(NSMenu*)menu {
+  NSArray<KnitMenuApp*>* apps = knit_menu_apps(knit_menu_candidates(), knit_menu_window_owners(),
+                                               NSProcessInfo.processInfo.processIdentifier);
+  for (KnitMenuApp* app in apps) [self addApp:app to:menu];
+  if (!apps.count) [self addHeader:@"No Available Apps" to:menu];
+
+  [menu addItem:[NSMenuItem separatorItem]];
+  bool uniform = knit_app_exception_count() == 0;
+  NSMenuItem* allOn = [self add:menu title:@"Turn On for All Apps" arg:nil on:NO];
+  allOn.action = @selector(setAllApps:);
+  allOn.representedObject = @YES;
+  allOn.enabled = !(uniform && knit_apps_on_by_default());
+  NSMenuItem* allOff = [self add:menu title:@"Turn Off for All Apps" arg:nil on:NO];
+  allOff.action = @selector(setAllApps:);
+  allOff.representedObject = @NO;
+  allOff.enabled = !(uniform && !knit_apps_on_by_default());
 }
 
 - (void)quit:(id)sender { [NSApp terminate:nil]; }
@@ -355,6 +508,8 @@ static void knit_load_prefs(void) {
   [menu removeAllItems];
   [self addAction:menu title:@"Show Sweater Borders" selector:@selector(toggle:)];
   [menu itemAtIndex:0].state = g_knit_on ? NSControlStateValueOn : NSControlStateValueOff;
+
+  [self buildApps:[self submenu:menu title:@"Apps"]];
 
   NSMenu* pattern = [self submenu:menu title:@"Pattern"];
   NSMenuItem* byApp = [self add:pattern title:@"By App" arg:@"chart=by-app"
