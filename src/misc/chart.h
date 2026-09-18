@@ -25,6 +25,7 @@ struct knit_chart {
   bool sculpted_yarn; // original raised, path-rendered stitches, cached per tile
   bool defined_yarn;  // larger, clearer stitches for otherwise flat colour blocks
   bool generated;     // built at runtime from an app icon, never offered in the menu
+  bool custom;        // drawn by the user (a PNG in the charts folder), shown as drawn
 };
 
 extern struct knit_chart g_charts[KNIT_CHART_MAX];

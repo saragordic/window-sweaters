@@ -1,10 +1,10 @@
 # The sweater collection
 
-37 app-inspired colourways, rendered by Window Sweaters. Choose **Pattern → By App** to give each app its own sweater, or **Zigzag** for a shared pattern in each app’s base colour.
+37 app-inspired colourways, rendered by Window Sweaters. Choose **Pattern → By App** to give each app its own sweater, or **Zigzag** for a shared pattern in each app’s icon colour.
 
-[Download the By App catalogue](catalogues/Window-Sweaters-Catalogue.pdf) · [Download the Zigzag catalogue](catalogues/Window-Sweaters-Zigzag-Catalogue.pdf)
+[Download the By App catalogue](catalogues/Window-Sweaters-Catalogue.pdf)
 
-The PDFs show the default **12 pt width and six stitch rows**. The reference plates below use 10 pt borders and include enlarged yarn and all four corners. All collection images use the actual app renderer and built-in colourways, without personal overrides.
+The PDF shows the default **12 pt width and six stitch rows**. The reference plates below use 10 pt borders and include enlarged yarn and all four corners. All collection images use the actual app renderer and built-in colourways, without personal overrides.
 
 ## Design notes
 
@@ -12,7 +12,7 @@ Visible knitted stitches, restrained colour palettes, and familiar sweater patte
 
 Most corners continue the pattern. WhatsApp uses textured corner patches; Notes and Calendar have curved outer cuffs. Stitch direction changes and partial motifs can remain visible at corner joins, especially when enlarged. The images show a reference window size, not a guarantee of identical joins at every size.
 
-Global Zigzag keeps the app’s base colour and uses a shared soft pink contrast yarn. It is separate from the custom zigzag colourways in By App mode. Apps with the same base colour can look identical in global Zigzag.
+Global Zigzag gives every app one shared pattern in colours taken from its own icon, softened into yarn, with a cream zigzag. On a pale app the zigzag is a deeper shade of the app’s own colour instead, so it still shows. This includes the 37 apps above: their hand-picked colours stay in By App. An app whose icon has no usable colour keeps its usual colour, and a colour you set yourself in `apps.conf` always wins. If you replace the pattern with your own `zigzag.png`, it is shown exactly as you drew it. In the rare case Window Sweaters runs out of room for a pale app’s zigzag, that app knits plain until there is room.
 
 App names describe colour inspiration and do not imply affiliation or endorsement.
 

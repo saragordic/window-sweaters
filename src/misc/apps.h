@@ -37,6 +37,9 @@ int knit_apps_load(void);
 /// Longest-prefix user match, then built-in app match, or NULL.
 const struct app_rule* knit_app_rule(const char* app_name);
 
+/// True for a rule the user wrote in apps.conf, false for the built-in collection.
+bool knit_app_rule_personal(const struct app_rule* rule);
+
 /// Resolve the effective chart (-1 = plain), independently of the app's yarn.
 /// By App uses the profile, falling back to plain; global mode overrides it.
 int knit_pattern_for_app(const char* app_name);

@@ -225,7 +225,7 @@ static const struct collection_chart k_collection[] = {
   { "zigzag", {
       "a....aa....a", "aa........aa", ".aa......aa.",
       "..aa....aa..", "...aa..aa...", "....aaaa...." },
-    { 0xfff2d2dcu } },
+    { 0xfff6f0deu } },   // cream; a pale app gets a deeper shade (autoyarn.m)
 };
 
 // Solid patches finish patterns that otherwise collide at the mitre.
@@ -360,6 +360,7 @@ int knit_charts_load(const char* dir) {
         (target >= 0 || g_chart_count < KNIT_CHART_MAX)) {
       struct knit_chart chart = {0};
       if (load_one(path, name, &chart)) {
+        chart.custom = true;
         if (target < 0) target = g_chart_count++;
         else {
           chart.solid_corners = g_charts[target].solid_corners;

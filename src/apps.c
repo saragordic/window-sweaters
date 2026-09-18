@@ -172,6 +172,12 @@ const struct app_rule* knit_app_rule(const char* app_name) {
   return best;
 }
 
+bool knit_app_rule_personal(const struct app_rule* rule) {
+  // Equality only: ordering pointers into two different arrays is undefined.
+  for (int i = 0; i < g_app_rule_count; i++) if (rule == &g_app_rules[i]) return true;
+  return false;
+}
+
 int knit_pattern_for_app(const char* app_name) {
   if (!g_knit_pattern_by_app)
     return g_chart_active >= 0 && g_chart_active < g_chart_count ? g_chart_active : -1;

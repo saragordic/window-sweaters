@@ -10,7 +10,7 @@ ARCHS = -arch arm64 -arch x86_64
 # refuses to launch below that version regardless of LSMinimumSystemVersion.
 DEPLOY = -mmacosx-version-min=13.0
 
-.PHONY: all debug clean test preview catalogue bench
+.PHONY: all debug clean test preview catalogue bench styles
 
 all: | bin
 	clang $(ARCHS) $(DEPLOY) -O3 -g -Isrc -fobjc-arc -c src/menubar.m -o bin/menubar.o
@@ -71,6 +71,7 @@ catalogue: bin/render-test
 	bin/render-test --catalogue docs/collection
 	bin/render-test --classics docs/collection
 	bin/render-test --individual docs/collection
+	bin/render-test --styles docs/collection/styles-comparison.png
 
 bench: bin/render-test
 	bin/render-test --bench
@@ -78,3 +79,7 @@ bench: bin/render-test
 # Optional owned-window display handoff probe; --list is read-only.
 bin/live-display: tests/live_display.m tests/live_resize.m src/border.c src/border.h src/knit.c src/chart.c src/apps.c | bin
 	clang -O2 -g -fobjc-arc -Isrc tests/live_display.m src/animation.c src/knit.c src/chart.c src/apps.c -o $@ $(LIBS)
+
+# The README's By App / Zigzag comparison only; Zigzag colours are fixed in tests/render.c.
+styles: bin/render-test
+	bin/render-test --styles docs/collection/styles-comparison.png

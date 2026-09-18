@@ -30,7 +30,7 @@ Click the yarn icon in your menu bar to change the style, pattern, border width,
 
 To leave an app bare, open **Apps** and untick it. Its windows lose their sweater straight away, everything else stays as it is, and it stays off until you tick it again, even after a restart. Only want sweaters on a few apps? Choose **Turn Off for All Apps**, then tick the ones you like. Apps you open later start off too.
 
-**By App** gives each app its own sweater. **Zigzag** gives them all a softer, matching pattern in their own colours. Try both and see what you like.
+**By App** gives each app its own sweater. **Zigzag** gives them all a softer, matching cream zigzag in colours taken from their icons. Try both and see what you like.
 
 If macOS asks for Accessibility access, enable Window Sweaters in **System Settings → Privacy & Security → Accessibility** so it can follow which window is focused.
 
@@ -49,11 +49,11 @@ Shown above in By App and Zigzag. Here’s everyone we’ve knitted for so far:
 - **Microsoft Office:** Word, Excel, PowerPoint, Outlook.
 - **More favourites:** Spotify, WhatsApp, Google Chrome, Firefox, Telegram, Discord.
 
-See every sweater and its close-up stitches in the [catalogue](docs/COLLECTION.md), or download the [By App PDF](docs/catalogues/Window-Sweaters-Catalogue.pdf) and [Zigzag PDF](docs/catalogues/Window-Sweaters-Zigzag-Catalogue.pdf).
+See every sweater and its close-up stitches in the [catalogue](docs/COLLECTION.md), or download the [By App PDF](docs/catalogues/Window-Sweaters-Catalogue.pdf).
 
 The 37 custom sweaters keep their hand-picked colours and patterns. Other apps borrow colours from their own icons, softened into yarn, and get a two-colour zigzag, picnic or twinkle sweater in **By App** mode. The pattern stays the same for each app. If an icon has no usable colour, the app keeps a stable colour chosen from its name.
 
-Icons are sampled locally in the background when needed. While the colour is being prepared, the border uses its usual fallback. Choosing a shared pattern keeps that pattern and its contrast yarns, with each app’s own base colour.
+Icons are sampled locally in the background when needed. While the colour is being prepared, the border uses its usual fallback. **Zigzag** uses icon colours for every app, the 37 custom ones included, with a cream zigzag, or a deeper shade of the app’s colour on pale apps. Colours you set in `apps.conf` always win. Other shared patterns keep their own contrast yarns, with each app’s own base colour.
 
 ## A little work in progress
 

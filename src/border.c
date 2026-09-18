@@ -7,6 +7,12 @@ __attribute__((weak))
 bool knit_auto_yarn(const char* app, pid_t pid, uint32_t* yarn, int* chart) {
   (void)app; (void)pid; (void)yarn; (void)chart; return false;
 }
+__attribute__((weak))
+bool knit_zigzag_active(void) { return false; }
+__attribute__((weak))
+bool knit_zigzag_yarn(const char* app, pid_t pid, uint32_t* yarn, int* chart) {
+  (void)app; (void)pid; (void)yarn; (void)chart; return false;
+}
 #include "misc/apps.h"
 #include "misc/chart.h"
 #include <math.h>
@@ -112,9 +118,12 @@ static void border_draw(struct border* border, CGRect frame, struct settings* se
     uint32_t yarn = knit_color_for_app(border->app);
     int chart = knit_pattern_for_app(border->app);
     const struct app_rule* rule = knit_app_rule(border->app);
-    if (rule) {
-      yarn = rule->color;
-    } else {
+    if (rule) yarn = rule->color;
+    if (knit_zigzag_active()) {
+      // One shared pattern, every app in its icon's colour, the 37
+      // hand-designed sweaters included; their own colours stay in By App.
+      knit_zigzag_yarn(border->app, border->owner_pid, &yarn, &chart);
+    } else if (!rule) {
       // No hand-picked sweater: borrow the app's own colour from its icon
       // rather than hashing its name into an arbitrary one.
       uint32_t auto_yarn; int auto_chart;

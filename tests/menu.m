@@ -300,6 +300,19 @@ int main(void) {
     assert([widths itemWithTitle:@"Custom · 10 pt"].state == NSControlStateValueOn);
     assert([widths itemWithTitle:@"Regular · 14 pt"].state == NSControlStateValueOff);
     assert(checked_count(widths) == 1);
+    // Every width, thinnest first, including the 8 pt option between Slim and Medium.
+    NSMutableArray* widthTitles = [NSMutableArray array];
+    for (NSMenuItem* item in widths.itemArray) if (!item.isSeparatorItem) [widthTitles addObject:item.title];
+    assert([widthTitles isEqualToArray:(@[@"Slim · 6 pt", @"Narrow · 8 pt", @"Medium · 12 pt",
+      @"Regular · 14 pt", @"Wide · 18 pt", @"Extra Wide · 28 pt", @"Custom · 10 pt"])]);
+    [controller apply:[widths itemWithTitle:@"Narrow · 8 pt"]];
+    assert(current_width == 8 && [[KnitTestDefaults standardUserDefaults] floatForKey:@"width"] == 8);
+    [controller rebuild:menu];
+    widths = submenu(menu, @"Border Width");
+    assert([widths itemWithTitle:@"Narrow · 8 pt"].state == NSControlStateValueOn);
+    assert(![widths itemWithTitle:@"Custom · 10 pt"] && checked_count(widths) == 1);
+    current_width = 10;
+    [controller rebuild:menu];
     assert(![submenu(menu, @"Stitch Size") itemWithTitle:@"Chunky · 3 rows"]);
     assert(![menu itemWithTitle:@"Customize"]);
 

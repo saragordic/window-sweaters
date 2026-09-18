@@ -538,7 +538,9 @@ static void knit_load_prefs(void) {
         arg:[NSString stringWithFormat:@"chart=%s", knit_menu_patterns[i].name]
         on:(!g_knit_pattern_by_app && g_chart_active == index)];
     choice.image = [self swatchForChart:index];
-    choice.toolTip = @"Pattern preview. Each app keeps its own main yarn colour.";
+    choice.toolTip = strcmp(knit_menu_patterns[i].name, "zigzag") == 0
+        ? @"Uses colours from app icons, with cream or deeper zigzags for contrast."
+        : @"Pattern preview. Each app keeps its own main yarn colour.";
   }
 
   NSMenu* custom = nil;
@@ -569,7 +571,7 @@ static void knit_load_prefs(void) {
   NSMenu* widths = [self submenu:menu title:@"Border Width"];
   float width = knit_current_width();
   const struct { const char* name; float value; } widthChoices[] = {
-    { "Slim", 6 }, { "Medium", 12 }, { "Regular", 14 }, { "Wide", 18 }, { "Extra Wide", 28 }
+    { "Slim", 6 }, { "Narrow", 8 }, { "Medium", 12 }, { "Regular", 14 }, { "Wide", 18 }, { "Extra Wide", 28 }
   };
   BOOL standardWidth = NO;
   for (size_t i = 0; i < sizeof widthChoices / sizeof widthChoices[0]; i++) {

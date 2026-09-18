@@ -1,4 +1,5 @@
-// Icon-derived colourways for apps without an authored rule.
+// Icon-derived colourways: By App sweaters for apps without an authored rule,
+// and the shared Zigzag's main yarn for every app.
 // Cache, charts and callbacks live on the main thread. Only icon decoding and
 // palette extraction run on the serial worker; it never touches renderer state.
 #import <Cocoa/Cocoa.h>
@@ -13,7 +14,9 @@ struct auto_yarn {
   char app[64];
   pid_t pid;
   uint32_t base, contrast;
-  int chart;
+  int chart;             // one generated chart per app, for the current mode
+  int chart_kind;        // which mode that chart was built for
+  uint32_t chart_yarn;   // and in which contrast yarn
   unsigned generation;
   uint64_t request, used;
   CFAbsoluteTime retry_after;
@@ -23,6 +26,39 @@ static struct auto_yarn g_auto[KNIT_AUTO_MAX];
 static int g_auto_count;
 static uint64_t g_auto_clock;
 static dispatch_queue_t g_auto_queue;
+// Owners turned away because every slot held in-flight work. When a request
+// settles, only these are asked again, each once; one still turned away waits
+// for the next completion. Never a redraw of everyone: with more apps than
+// slots, that evicts and re-requests forever.
+// The list grows as needed, so no turned-away owner is ever dropped.
+static pid_t* g_deferred;
+static int g_deferred_count, g_deferred_capacity;
+
+static void defer_owner(pid_t pid) {
+  for (int i = 0; i < g_deferred_count; i++) if (g_deferred[i] == pid) return;
+  if (g_deferred_count == g_deferred_capacity) {
+    int capacity = g_deferred_capacity ? g_deferred_capacity * 2 : KNIT_AUTO_MAX;
+    pid_t* grown = realloc(g_deferred, sizeof(pid_t) * (size_t)capacity);
+    if (!grown) return;                  // out of memory: it waits for a natural redraw
+    g_deferred = grown;
+    g_deferred_capacity = capacity;
+  }
+  g_deferred[g_deferred_count++] = pid;
+}
+
+static void retry_deferred(void) {
+  if (!g_deferred_count) return;
+  // Take the list: a retry may defer its owner again, into a fresh one.
+  pid_t* owners = g_deferred;
+  int count = g_deferred_count;
+  g_deferred = NULL;
+  g_deferred_count = g_deferred_capacity = 0;
+  for (int i = 0; i < count; i++) knit_auto_yarn_ready(owners[i]);
+  if (!g_deferred) { g_deferred = owners; g_deferred_capacity = count; }   // reuse storage
+  else free(owners);
+}
+enum { CHART_NONE, CHART_BY_APP, CHART_ZIGZAG };
+static const uint32_t CREAM = KNIT_CREAM;                    // the collection's cream
 
 static void rgb2hsl(uint32_t v, double* h, double* s, double* l) {
   double r=((v>>16)&255)/255.0, g=((v>>8)&255)/255.0, b=(v&255)/255.0;
@@ -73,11 +109,16 @@ static bool icon_pixels(NSImage* icon, uint32_t* out_base, uint32_t* out_contras
     double r=((v>>16)&255)/alpha,g=((v>>8)&255)/alpha,b=(v&255)/alpha;
     double mx=fmax(r,fmax(g,b)), mn=fmin(r,fmin(g,b));
     double sat = mx<=0 ? 0 : (mx-mn)/mx;
-    if (sat < 0.18 || mx < 0.12) continue;                    // greys, whites, blacks
+    // Divide-by-brightness saturation calls a faintly tinted near-black
+    // "colourful"; require real colour strength too, or a black-and-white
+    // icon (ChatGPT's knot) reads as navy.
+    if (sat < 0.18 || mx < 0.12 || mx - mn < 0.10) continue;   // greys, whites, blacks
     counts[((int)(r*15)<<8)|((int)(g*15)<<4)|(int)(b*15)]++; kept++;
   }
   free(px);
-  if (kept < S*S/40) return false;                            // no committed colour
+  // ~1.7% of the icon: enough for a small accent on a neutral icon (Calculator's
+  // orange keys), not so little that a stray highlight counts as a colour.
+  if (kept < S*S/60) return false;                            // no committed colour
 
   uint32_t picked[3]; int np=0;
   for (int pass=0; pass<3 && np<3; pass++) {
@@ -101,7 +142,6 @@ static bool icon_pixels(NSImage* icon, uint32_t* out_base, uint32_t* out_contras
   }
   if (!np) return false;
 
-  const uint32_t CREAM = 0xfff6f0de;                          // the collection's cream
   double bh,bs,bl; rgb2hsl(picked[0],&bh,&bs,&bl);
   int ci=-1;
   for (int j=1;j<np;j++) { double h2,s2,l2; rgb2hsl(picked[j],&h2,&s2,&l2);
@@ -118,35 +158,44 @@ static bool icon_pixels(NSImage* icon, uint32_t* out_base, uint32_t* out_contras
   return true;
 }
 
-// Clone a quiet motif using only the derived contrast yarn. A recycled cache
-// slot can reuse its chart; cached tiles must be dropped before replacing it.
-static int build_chart(struct auto_yarn* entry) {
+// Clone a built-in motif knitted in one contrast yarn. Each app owns at most
+// one generated chart, rebuilt in place when its mode or yarn changes, so the
+// chart table stays bounded by the cache. Cached tiles must be dropped before
+// a chart is replaced.
+static int build_chart(struct auto_yarn* entry, const char* motif, int kind, uint32_t yarn) {
   int target = entry->generation == g_charts_generation ? entry->chart : -1;
   if (target < 0 || target >= g_chart_count || !g_charts[target].generated)
     target = -1;
   if (target < 0 && g_chart_count >= KNIT_CHART_MAX) return -1;
-  static const char* lean[] = { "zigzag", "picnic", "twinkle" };
-  unsigned hash = 2166136261u;
-  for (const unsigned char* p = (const unsigned char*)entry->app; *p; p++)
-    hash = (hash ^ *p) * 16777619u;
-  int source = knit_chart_index(lean[hash % 3]);
+  int source = knit_chart_index(motif);
   if (source < 0) return -1;
   struct knit_chart chart = g_charts[source];
   if (!chart.px || chart.w <= 0 || chart.h <= 0) return -1;
   uint32_t* pixels = malloc(sizeof(uint32_t) * chart.w * chart.h);
   if (!pixels) return -1;
   for (int k = 0; k < chart.w * chart.h; k++)
-    pixels[k] = (chart.px[k] >> 24) >= 128 ? entry->contrast : 0;
+    pixels[k] = (chart.px[k] >> 24) >= 128 ? yarn : 0;
   chart.px = pixels;
   chart.generated = true;
   // Use a request identity rather than truncating a potentially long app name.
   snprintf(chart.name, sizeof chart.name, "auto-%llu", (unsigned long long)entry->request);
-  if (chart.corner_color) chart.corner_color = entry->contrast;
-  if (chart.cuff_color) chart.cuff_color = entry->contrast;
+  if (chart.corner_color) chart.corner_color = yarn;
+  if (chart.cuff_color) chart.cuff_color = yarn;
   if (target < 0) target = g_chart_count++;
   else { knit_flush_cache(); free(g_charts[target].px); }
   g_charts[target] = chart;
+  entry->chart_kind = kind;
+  entry->chart_yarn = yarn;
   return target;
+}
+
+// The By App motif is a stable hash of the app name, independent of colour.
+static const char* by_app_motif(const char* app) {
+  static const char* lean[] = { "zigzag", "picnic", "twinkle" };
+  unsigned hash = 2166136261u;
+  for (const unsigned char* p = (const unsigned char*)app; *p; p++)
+    hash = (hash ^ *p) * 16777619u;
+  return lean[hash % 3];
 }
 
 static NSImage* icon_for_pid(pid_t pid) {
@@ -175,7 +224,7 @@ static void sample_icon(int slot) {
       bool missing = icon == nil;
       dispatch_async(dispatch_get_main_queue(), ^{
         struct auto_yarn* current = &g_auto[slot];
-        if (current->request != request) return;
+        if (current->request != request) { retry_deferred(); return; }
         current->pending = false;
         current->ok = ok;
         current->dirty = ok;
@@ -194,15 +243,17 @@ static void sample_icon(int slot) {
               knit_auto_yarn_ready(pid);
           });
         }
+        retry_deferred();                    // this slot is free to hand on
       });
     }
   });
 }
 
-bool knit_auto_yarn(const char* app, pid_t pid, uint32_t* yarn, int* chart) {
+// Find or start the icon work for this app. Returns NULL only for unusable
+// input or a cache full of in-flight work. The entry may still be pending.
+static struct auto_yarn* auto_entry(const char* app, pid_t pid) {
   assert(pthread_main_np());
-  if (!app || !*app || strlen(app) >= sizeof g_auto[0].app || pid <= 0
-      || !yarn || !chart || knit_app_rule(app)) return false;
+  if (!app || !*app || strlen(app) >= sizeof g_auto[0].app || pid <= 0) return NULL;
   int slot = -1;
   for (int i = 0; i < g_auto_count; i++)
     if (g_auto[i].pid == pid && strcmp(g_auto[i].app, app) == 0) { slot = i; break; }
@@ -213,35 +264,72 @@ bool knit_auto_yarn(const char* app, pid_t pid, uint32_t* yarn, int* chart) {
       // in-flight requests; callbacks carry a token so old work cannot win.
       for (int i = 0; i < g_auto_count; i++)
         if (!g_auto[i].pending && (slot < 0 || g_auto[i].used < g_auto[slot].used)) slot = i;
-      if (slot < 0) return false;
+      if (slot < 0) { defer_owner(pid); return NULL; }
     }
     struct auto_yarn* entry = &g_auto[slot];
+    // A recycled slot keeps its chart, to be rebuilt for the new app.
     int previous = entry->generation == g_charts_generation ? entry->chart : -1;
     *entry = (struct auto_yarn){.pid=pid, .chart=previous,
       .generation=g_charts_generation, .request=++g_auto_clock};
     snprintf(entry->app,sizeof entry->app,"%s",app);
-    // Mark any retained chart as needing recolouring for this app.
     entry->used = ++g_auto_clock;
     sample_icon(slot);
-    return false;
+    return entry;
   }
   struct auto_yarn* entry = &g_auto[slot];
   entry->used = ++g_auto_clock;
-  if (entry->pending) return false;
-  if (!entry->ok) {
-    if (CFAbsoluteTimeGetCurrent() >= entry->retry_after) sample_icon(slot);
-    return false;
-  }
-  // Defer chart allocation in plain/global modes. Colours remain app-derived,
-  // while the explicit pattern keeps the user's selected motif and yarns.
-  if (g_knit_pattern_by_app &&
-      (entry->generation != g_charts_generation || entry->chart < 0 ||
-       entry->dirty)) {
-    entry->chart = build_chart(entry);
+  if (!entry->pending && !entry->ok && CFAbsoluteTimeGetCurrent() >= entry->retry_after)
+    sample_icon(slot);
+  return entry;
+}
+
+// The chart this entry needs, rebuilt only when the mode, the yarn or the
+// chart table has changed since it was last built.
+static int entry_chart(struct auto_yarn* entry, const char* motif, int kind, uint32_t yarn) {
+  if (entry->generation != g_charts_generation || entry->chart < 0 || entry->dirty
+      || entry->chart_kind != kind || entry->chart_yarn != yarn) {
+    entry->chart = build_chart(entry, motif, kind, yarn);
     entry->generation = g_charts_generation;
     entry->dirty = false;
   }
+  return entry->chart;
+}
+
+bool knit_auto_yarn(const char* app, pid_t pid, uint32_t* yarn, int* chart) {
+  if (!yarn || !chart || knit_app_rule(app)) return false;
+  struct auto_yarn* entry = auto_entry(app, pid);
+  if (!entry || entry->pending || !entry->ok) return false;
+  // Defer chart allocation in plain/global modes. Colours remain app-derived,
+  // while the explicit pattern keeps the user's selected motif and yarns.
   *yarn = entry->base;
-  *chart = g_knit_pattern_by_app ? entry->chart : -1;
+  *chart = g_knit_pattern_by_app
+         ? entry_chart(entry, by_app_motif(entry->app), CHART_BY_APP, entry->contrast)
+         : -1;
+  return true;
+}
+
+bool knit_zigzag_active(void) {
+  return !g_knit_pattern_by_app && g_chart_active >= 0
+         && g_chart_active == knit_chart_index("zigzag");
+}
+
+static uint32_t zigzag_yarn(uint32_t base) { return knit_zigzag_contrast(base); }
+
+bool knit_zigzag_yarn(const char* app, pid_t pid, uint32_t* yarn, int* chart) {
+  if (!yarn || !chart) return false;
+  // A colour the user chose in apps.conf is theirs in every pattern; only the
+  // built-in collection gives way to icon colours here.
+  const struct app_rule* rule = knit_app_rule(app);
+  bool personal = rule && knit_app_rule_personal(rule);
+  struct auto_yarn* entry = personal ? NULL : auto_entry(app, pid);
+  bool changed = false;
+  if (entry && !entry->pending && entry->ok) { *yarn = entry->base; changed = true; }
+  // A zigzag the user drew themselves is shown exactly as drawn, for every app.
+  if (*chart >= 0 && *chart < g_chart_count && g_charts[*chart].custom) return changed;
+  uint32_t contrast = zigzag_yarn(*yarn);
+  if (contrast == CREAM) return changed;          // the shared zigzag is already cream
+  if (!entry) entry = auto_entry(app, pid);       // a personal colour still needs a chart slot
+  // No room for this app's own zigzag: plain knitting beats cream on cream.
+  *chart = entry ? entry_chart(entry, "zigzag", CHART_ZIGZAG, contrast) : -1;
   return true;
 }

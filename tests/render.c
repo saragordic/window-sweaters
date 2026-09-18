@@ -325,6 +325,95 @@ static void catalogue_preview(const char* directory, bool revised) {
   }
 }
 
+// docs/collection/styles-comparison.png: By App beside the shared Zigzag.
+// Zigzag's main yarns come from app icons, which differ between Macs, so
+// they are fixed here as sampled on 2026-09-18; rerun --styles after updating
+// them. Contrast yarns use the app's own rule, knit_zigzag_contrast().
+#ifndef STY_TITLE_Y
+#define STY_TITLE_Y 52
+#define STY_SUB_Y 82
+#define STY_HEAD_Y 137
+#define STY_HEAD_SIZE 25
+#define STY_LABEL_Y 198
+#define STY_LABEL_SIZE 20
+#endif
+static void styled_text(CGContextRef c, float x, float y, const char* text, float size) {
+  CFStringRef s = CFStringCreateWithCString(NULL, text, kCFStringEncodingUTF8);
+  CTFontRef font = CTFontCreateWithName(CFSTR("HelveticaNeue"), size, NULL);
+  CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+  const CGFloat rgba[] = { 63/255., 66/255., 60/255., 1 };
+  CGColorRef ink = CGColorCreate(space, rgba);
+  const void* keys[] = { kCTFontAttributeName, kCTForegroundColorAttributeName };
+  const void* vals[] = { font, ink };
+  CFDictionaryRef attrs = CFDictionaryCreate(NULL, keys, vals, 2,
+      &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+  CFAttributedStringRef a = CFAttributedStringCreate(NULL, s, attrs);
+  CTLineRef line = CTLineCreateWithAttributedString(a);
+  CGContextSaveGState(c);
+  CGContextTranslateCTM(c, x, y); CGContextScaleCTM(c, 1, -1);
+  CGContextSetTextPosition(c, 0, 0); CTLineDraw(line, c);
+  CGContextRestoreGState(c);
+  CFRelease(line); CFRelease(a); CFRelease(attrs); CGColorRelease(ink);
+  CGColorSpaceRelease(space); CFRelease(font); CFRelease(s);
+}
+
+static void style_card(CGContextRef c, float x, float y, uint32_t base, int chart) {
+  CGRect win = CGRectMake(x + 12, y + 12, 470, 112);
+  knit_flush_cache();
+  knit_draw(c, win, 10, 12, base, chart, 0, 1);
+  CGPathRef p = CGPathCreateWithRoundedRect(win, 10, 10, NULL);
+  CGContextSetRGBFillColor(c, 1, 1, 1, 1); CGContextAddPath(c, p); CGContextFillPath(c); CFRelease(p);
+  for (int d = 0; d < 3; d++) {
+    CGContextSetRGBFillColor(c, .85, .84, .81, 1);
+    CGContextFillEllipseInRect(c, CGRectMake(win.origin.x + 13 + d * 12, win.origin.y + 12, 6, 6));
+  }
+  CGContextSaveGState(c);
+  CGContextClipToRect(c, CGRectMake(x, y + 159, 494, 36));
+  knit_draw(c, CGRectMake(x - 50, y + 195, 610, 100), 10, 36, base, chart, 0, 1);
+  CGContextRestoreGState(c);
+}
+
+static void styles_comparison(const char* path) {
+  static const struct { const char* name; uint32_t icon; } apps[] = {
+    { "Finder", 0xff4ba1c0 }, { "Microsoft Teams", 0xff585896 },
+    { "Claude", 0xffb78070 }, { "Codex", 0xff0a84ff },       // Codex: no icon colour, keeps its own
+    { "Spotify", 0xff3aa65e }, { "Notion", 0xfff5f5f2 },     // Notion: no icon colour, keeps its own
+    { "WhatsApp", 0xff3aa667 }, { "Figma", 0xffc04b5b } };
+  knit_charts_load(NULL);
+  const int W = 2240, H = 1320;
+  CGContextRef c = canvas(W, H, 2);
+  CGContextSetRGBFillColor(c, .977, .969, .953, 1); CGContextFillRect(c, CGRectMake(0, 0, W, H));
+  styled_text(c, 40, STY_TITLE_Y, "Window Sweaters", 32);
+  styled_text(c, 40, STY_SUB_Y, "Your favourite apps, two ways to wear them.", 16);
+  styled_text(c, 40, STY_HEAD_Y, "By App", STY_HEAD_SIZE);
+  styled_text(c, 1160, STY_HEAD_Y, "Zigzag", STY_HEAD_SIZE);
+  CGContextSetRGBFillColor(c, 217/255., 217/255., 207/255., 1);
+  CGContextFillRect(c, CGRectMake(1119.5, 112, 1, 1122));
+  int zigzag = knit_chart_index("zigzag"); assert(zigzag >= 0);
+  const struct knit_chart shared = g_charts[zigzag];
+  for (int i = 0; i < 8; i++) {
+    const struct app_rule* rule = knit_app_rule(apps[i].name); assert(rule);
+    float y = 221 + (i / 2) * 270;
+    for (int half = 0; half < 2; half++) {
+      float x = 40 + half * 1120 + (i % 2) * 540;
+      styled_text(c, x, STY_LABEL_Y + (i / 2) * 270, apps[i].name, STY_LABEL_SIZE);
+      if (!half) { style_card(c, x, y, rule->color, knit_chart_index(rule->chart)); continue; }
+      // The shared zigzag, knitted in this app's contrast yarn.
+      uint32_t contrast = knit_zigzag_contrast(apps[i].icon);
+      uint32_t* px = malloc(sizeof(uint32_t) * shared.w * shared.h); assert(px);
+      for (int k = 0; k < shared.w * shared.h; k++) px[k] = (shared.px[k] >> 24) >= 128 ? contrast : 0;
+      int slot = g_chart_count++;
+      g_charts[slot] = shared; g_charts[slot].px = px;
+      style_card(c, x, y, apps[i].icon, slot);
+      g_chart_count--;
+      free(px);
+    }
+  }
+  styled_text(c, 40, 1284, "12 pt borders / enlarged yarn details / rendered by Window Sweaters", 13);
+  styled_text(c, 1160, 1284, "Zigzag uses each app\xe2\x80\x99s icon colour where it has one, with a cream or deeper zigzag for contrast.", 13);
+  write_image(c, path); CGContextRelease(c);
+}
+
 static void patterns_preview(const char* path) {
   const char* names[]={"picnic","ribbon","posy","twinkle","candy-stripe","zigzag"};
   const char* titles[]={"Picnic Checks","Ribbon Stripes","Little Bows","Tiny Stars","Candy Stripes","Zigzag"};
@@ -591,6 +680,7 @@ int main(int argc,char** argv) {
   else if(argc>2 && !strcmp(argv[1],"--refined")) refined_preview(argv[2]);
   else if(argc>2 && !strcmp(argv[1],"--chrome")) chrome_preview(argv[2]);
   else if(argc>2 && !strcmp(argv[1],"--patterns")) patterns_preview(argv[2]);
+  else if(argc>2 && !strcmp(argv[1],"--styles")) styles_comparison(argv[2]);
   else if(argc>1) preview(argv[1]);
   else verify();
   knit_flush_cache();
