@@ -231,8 +231,8 @@ int main(int argc, char** argv) {
     send_args_to_server(server_port, argc, argv);
     return 0;
   } else if (server_port) {
-    error("A borders instance is already running and no valid arguments"
-          " where provided. To modify properties of the running instance"
+    error("A Window Sweaters instance is already running and no valid arguments"
+          " were provided. To modify properties of the running instance"
           " provide them as arguments.\n");
   }
 
