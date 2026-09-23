@@ -467,6 +467,24 @@ static uint32_t pixel(CGContextRef c,int x,int y) {
   return *(uint32_t*)((char*)CGBitmapContextGetData(c)+y*CGBitmapContextGetBytesPerRow(c)+x*4);
 }
 
+static void verify_inside(void) {
+  for (int scale = 1; scale <= 2; scale++) {
+    CGContextRef c = canvas(260, 180, scale);
+    // Native window: (20,20)–(220,140), radius 9; a 12 pt knit lives within it.
+    knit_draw_inside(c, CGRectMake(32, 32, 176, 96), 9, 12,
+                     0xff497641u, knit_chart_index("zigzag"), 0);
+    assert((pixel(c, 120*scale, 25*scale) >> 24) == 255);
+    assert(pixel(c, 120*scale, 80*scale) == 0); // content remains clear
+    assert(pixel(c, 19*scale, 80*scale) == 0);  // no pixel beyond window
+    assert(pixel(c, 220*scale, 80*scale) == 0);
+    assert(pixel(c, 20*scale, 20*scale) == 0);  // native rounded corner
+    // The 9 pt native arc reaches this point; a 12 pt arc would leave a gap.
+    assert((pixel(c, 26*scale, 23*scale) >> 24) > 200);
+    CGContextRelease(c);
+  }
+  puts("PASS: inset knit stays within native bounds and follows a radius smaller than its width at 1x/2x");
+}
+
 // Yarn highlights vary in brightness; hue must still match the corner yarn.
 static bool same_yarn(uint32_t a, uint32_t b) {
   int ac[3] = {(a >> 16) & 255, (a >> 8) & 255, a & 255};
@@ -682,7 +700,7 @@ int main(int argc,char** argv) {
   else if(argc>2 && !strcmp(argv[1],"--patterns")) patterns_preview(argv[2]);
   else if(argc>2 && !strcmp(argv[1],"--styles")) styles_comparison(argv[2]);
   else if(argc>1) preview(argv[1]);
-  else verify();
+  else { verify(); verify_inside(); }
   knit_flush_cache();
   return 0;
 }

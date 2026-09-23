@@ -58,8 +58,8 @@ static NSDictionary* order_snapshot(NSString* phase) {
   CFRelease(windows);
   bool complete = rank[0] >= 0 && rank[1] >= 0 && rank[2] >= 0 && rank[3] >= 0;
   unsigned front = requested_front, rear = 1 - front;
-  bool a_below = complete && rank[0] < rank[2];
-  bool b_below = complete && rank[1] < rank[3];
+  bool a_above = complete && rank[2] < rank[0];
+  bool b_above = complete && rank[3] < rank[1];
   bool target_order = complete && rank[front] < rank[rear];
   bool foreground_border_clear = complete && rank[front + 2] < rank[rear];
   NSMutableArray* own = [NSMutableArray array];
@@ -74,9 +74,9 @@ static NSDictionary* order_snapshot(NSString* phase) {
   return @{ @"phase": phase, @"stage": @(order_generation), @"elapsed_ms": @(order_elapsed()),
       @"requested_front": front ? @"target_b" : @"target_a", @"own_windows": own,
       @"all_own_windows_onscreen": @(complete), @"source_order_matches_request": @(target_order),
-      @"border_a_below_owner": @(a_below), @"border_b_below_owner": @(b_below),
+      @"border_a_above_owner": @(a_above), @"border_b_above_owner": @(b_above),
       @"foreground_border_above_rear_target": @(foreground_border_clear),
-      @"own_sequence_valid": @(complete && target_order && a_below && b_below && foreground_border_clear) };
+      @"own_sequence_valid": @(complete && target_order && a_above && b_above && foreground_border_clear) };
 }
 
 static bool update_order_border(unsigned index) {

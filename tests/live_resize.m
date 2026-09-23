@@ -22,12 +22,14 @@ static CGError timed_bounds(int, uint32_t, CGRect*);
 static CGError timed_shape(int, uint32_t, float, float, CFTypeRef);
 static CGContextRef timed_context(int, uint32_t, CFDictionaryRef);
 static void timed_draw(CGContextRef, CGRect, float, float, uint32_t, int, float, float);
+static void timed_draw_inside(CGContextRef, CGRect, float, float, uint32_t, int, float);
 static CGError timed_flush(int, uint32_t, void*);
 static CGError timed_commit(CFTypeRef, int);
 #define SLSGetWindowBounds timed_bounds
 #define SLSSetWindowShape timed_shape
 #define SLWindowContextCreate timed_context
 #define knit_draw timed_draw
+#define knit_draw_inside timed_draw_inside
 #define SLSFlushWindowContentRegion timed_flush
 #define SLSTransactionCommit timed_commit
 #include "../src/border.c"
@@ -35,6 +37,7 @@ static CGError timed_commit(CFTypeRef, int);
 #undef SLSSetWindowShape
 #undef SLWindowContextCreate
 #undef knit_draw
+#undef knit_draw_inside
 #undef SLSFlushWindowContentRegion
 #undef SLSTransactionCommit
 
@@ -54,8 +57,9 @@ static struct { unsigned count, errors; double top_max, bottom_max, size_max; } 
 static struct border* probe_border;
 static _Atomic(uint32_t) probe_wid;
 static _Atomic(uint64_t) request_ns;
-static bool running, notification_mode = true;
+static bool running, notification_mode = true, move_only;
 static unsigned requests, updates, move_events, resize_events, query_failures;
+static double minimum_top_gap = INFINITY;
 static uint64_t start_ns;
 static NSDictionary* startup_details;
 
@@ -86,6 +90,11 @@ static void timed_draw(CGContextRef ctx, CGRect r, float radius, float width,
   uint64_t t = now_ns(); knit_draw(ctx, r, radius, width, color, chart, dim, tuck);
   record(DRAW, now_ns() - t);
 }
+static void timed_draw_inside(CGContextRef ctx, CGRect r, float radius, float width,
+                              uint32_t color, int chart, float dim) {
+  uint64_t t = now_ns(); knit_draw_inside(ctx, r, radius, width, color, chart, dim);
+  record(DRAW, now_ns() - t);
+}
 static CGError timed_flush(int cid, uint32_t wid, void* region) {
   uint64_t t = now_ns(); CGError e = SLSFlushWindowContentRegion(cid, wid, region);
   record(FLUSH, now_ns() - t); return e;
@@ -104,11 +113,10 @@ static void sample_alignment(unsigned bucket) {
   CGError b = SLSGetWindowBounds(probe_border->cid, probe_border->wid, &border);
   record(QUERY, now_ns() - t);
   if (a || b) { query_failures++; return; }
-  double p = g_settings.border_width + BORDER_PADDING;
-  double top = fabs(border.origin.y + p - target.origin.y);
-  double bottom = fabs(CGRectGetMaxY(border) - p - CGRectGetMaxY(target));
-  double size = fmax(fabs(border.size.width - 2*p - target.size.width),
-                     fabs(border.size.height - 2*p - target.size.height));
+  double top = fabs(border.origin.y - target.origin.y);
+  double bottom = fabs(CGRectGetMaxY(border) - CGRectGetMaxY(target));
+  double size = fmax(fabs(border.size.width - target.size.width),
+                     fabs(border.size.height - target.size.height));
   alignment[bucket].count++;
   alignment[bucket].errors += top > .5 || bottom > .5 || size > .5;
   alignment[bucket].top_max = fmax(alignment[bucket].top_max, top);
@@ -153,17 +161,21 @@ static NSDictionary* report(double seconds, NSString* error) {
   }
   NSMutableDictionary* geometry = [NSMutableDictionary dictionary];
   for (unsigned i = 0; i < 2; i++) {
-    geometry[i ? @"next_timer_before_resize" : @"immediately_after_border_update"] = @{
+    geometry[i ? (move_only ? @"next_timer_before_move" : @"next_timer_before_resize")
+               : @"immediately_after_border_update"] = @{
         @"samples": @(alignment[i].count), @"mismatch_over_half_point": @(alignment[i].errors),
         @"max_top_error_points": @(alignment[i].top_max),
         @"max_bottom_error_points": @(alignment[i].bottom_max),
         @"max_size_error_points": @(alignment[i].size_max) };
   }
-  return @{ @"probe": @"Window Sweaters Resize Probe", @"mode": notification_mode ? @"notifications" : @"immediate",
+  return @{ @"probe": move_only ? @"Window Sweaters Move Probe" : @"Window Sweaters Resize Probe",
+      @"mode": move_only ? @"move" : notification_mode ? @"notifications" : @"immediate",
       @"status": error ?: @"completed", @"elapsed_seconds": @(seconds),
       @"native_resize_requests": @(requests), @"border_updates": @(updates),
       @"move_notifications": @(move_events), @"resize_notifications": @(resize_events),
       @"query_failures": @(query_failures), @"phases": phases, @"geometry": geometry,
+      @"minimum_visible_top_gap_points": @(isfinite(minimum_top_gap) ? minimum_top_gap : 0),
+      @"top_boundary_reached": @(move_only && minimum_top_gap <= .5),
       @"startup": startup_details ?: @{},
       @"pattern": @"Chrome built-in app colourwork", @"border_width_points": @(g_settings.border_width),
       @"measurement_limit": @"Own-window geometry and CPU/API timings only; no pixel capture or presentation-synchronization proof. Target and border share this probe process. Notification delay is measured from the latest resize request, not a per-event correlation ID." };
@@ -204,11 +216,16 @@ static NSDictionary* report(double seconds, NSString* error) {
   }
   sample_alignment(1);
   NSRect frame = self.baseFrame;
-  // AppKit's bottom-left origin stays fixed; only the screen's top edge moves.
-  frame.size.height += round(self.amplitude * .5 * (1 - cos(2*M_PI*elapsed)));
+  double delta = round(self.amplitude * .5 * (1 - cos(2*M_PI*elapsed)));
+  // Move mode checks the drag geometry without triggering resize suppression.
+  // Resize mode keeps AppKit's bottom-left origin fixed.
+  if (move_only) frame.origin.y += delta;
+  else frame.size.height += delta;
   atomic_store(&request_ns, now_ns()); requests++;
   uint64_t t = now_ns(); [self.window setFrame:frame display:YES animate:NO];
   record(NATIVE_FRAME, now_ns() - t);
+  if (move_only) minimum_top_gap = fmin(minimum_top_gap,
+      NSMaxY(self.window.screen.visibleFrame) - NSMaxY(self.window.frame));
   if (!notification_mode) update_border();
 }
 - (void)applicationDidFinishLaunching:(NSNotification*)notification {
@@ -277,6 +294,7 @@ static NSDictionary* report(double seconds, NSString* error) {
   g_knit_pattern_by_app = true; g_chart_active = -1;
   border_update(probe_border, false);
   details[@"border_window_id"] = @(probe_border->wid);
+  details[@"disable_mouse_events_error"] = @(SLSSetMouseEventEnableFlags(cid, probe_border->wid, false));
   details[@"border_context_created"] = @(probe_border->context != NULL);
   details[@"border_too_small"] = @(probe_border->too_small);
   details[@"border_target_bounds_points"] = NSStringFromRect(NSRectFromCGRect(probe_border->target_bounds));
@@ -290,7 +308,8 @@ static NSDictionary* report(double seconds, NSString* error) {
   if (a || b || c) { [self finish:@"own_window_notifications_unavailable"]; return; }
   self.baseFrame = self.window.frame;
   NSRect visible = self.window.screen.visibleFrame;
-  self.amplitude = fmin(120, NSMaxY(visible) - NSMaxY(self.baseFrame) - 30);
+  self.amplitude = move_only ? fmax(0, NSMaxY(visible) - NSMaxY(self.baseFrame))
+                             : fmin(120, NSMaxY(visible) - NSMaxY(self.baseFrame) - 30);
   memset(metrics, 0, sizeof(metrics)); // Exclude one-time creation and tile warmup.
   running = true; start_ns = now_ns();
   self.timer = [NSTimer timerWithTimeInterval:1.0/60 target:self selector:@selector(tick:) userInfo:nil repeats:YES];
@@ -301,11 +320,12 @@ static NSDictionary* report(double seconds, NSString* error) {
 int main(int argc, const char* argv[]) {
   if (argc == 3 && strcmp(argv[1], "--mode") == 0) {
     if (strcmp(argv[2], "immediate") == 0) notification_mode = false;
+    else if (strcmp(argv[2], "move") == 0) { notification_mode = false; move_only = true; }
     else if (strcmp(argv[2], "notifications") != 0) {
-      fputs("Mode must be notifications or immediate.\n", stderr); return 2;
+      fputs("Mode must be notifications, immediate, or move.\n", stderr); return 2;
     }
   } else if (argc != 1) {
-    fputs("Usage: knit-live-resize [--mode notifications|immediate]\nCreates only its own visible probe window for three seconds.\n", stderr);
+    fputs("Usage: knit-live-resize [--mode notifications|immediate|move]\nCreates only its own visible probe window for three seconds.\n", stderr);
     return 2;
   }
   @autoreleasepool {

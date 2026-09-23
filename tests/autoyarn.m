@@ -286,6 +286,12 @@ int main(void) { @autoreleasepool {
   int pale_chart=pc, charts_now=g_chart_count;
   pc=zig; knit_zigzag_yarn("Pale",901,&pale,&pc);            // a cache hit: nothing rebuilt
   assert(pc==pale_chart && g_chart_count==charts_now);
+  uint32_t chosen=0xfff6f0deu; int recolored=zig;
+  knit_auto_recolor("Claude",900,chosen,&recolored,false);
+  assert(recolored!=zig); check_chart(recolored,knit_zigzag_contrast(chosen));
+  recolored=zig;
+  knit_auto_recolor("Claude",900,chosen,&recolored,true); // an explicitly chosen Zigzag
+  assert(recolored!=zig); check_chart(recolored,knit_zigzag_contrast(chosen));
 
   // No usable icon colour: the usual colour stays, and still gets a visible zigzag.
   fixture=make_icon(0xff888888,0xffffffff);
@@ -307,6 +313,10 @@ int main(void) { @autoreleasepool {
   uint32_t by_yarn; int by_chart=request("Switcher",903,&by_yarn);
   assert(by_chart==zig_slot && g_chart_count==charts_now);   // rebuilt in place as its By App motif
   for(int i=0;i<g_auto_count;i++) if(g_auto[i].pid==903) check_chart(by_chart,g_auto[i].contrast);
+  recolored=by_chart;
+  knit_auto_recolor("Switcher",903,chosen,&recolored,false);
+  assert(recolored==by_chart && g_chart_count==charts_now);
+  check_chart(recolored,knit_zigzag_contrast(chosen));
   assert(knit_pattern_select("zigzag"));
   my=0; mc=zig; knit_zigzag_yarn("Switcher",903,&my,&mc);
   assert(mc==zig_slot && g_chart_count==charts_now);

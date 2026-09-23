@@ -17,3 +17,9 @@ bool knit_zigzag_active(void);
 // a cream zigzag, or a deeper shade of that yarn when the yarn is pale.
 // *yarn comes in as the app's usual colour; *chart as the shared zigzag.
 bool knit_zigzag_yarn(const char* app, pid_t pid, uint32_t* yarn, int* chart);
+
+// Rebuild an automatic motif's contrast yarn after Preferences changes its
+// main color. A separately chosen chart stays put, except Zigzag, whose
+// contrast always follows the chosen main color.
+void knit_auto_recolor(const char* app, pid_t pid, uint32_t yarn,
+                       int* chart, bool chart_overridden);

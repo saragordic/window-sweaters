@@ -502,14 +502,19 @@ static struct knit_tile knit_get_tile(float band, uint32_t color, int chart) {
   return t;
 }
 
-void knit_draw(CGContextRef ctx, CGRect win, float radius, float band,
-               uint32_t color, int chart, float dim, float tuck) {
+static void knit_draw_impl(CGContextRef ctx, CGRect win, float radius, float band,
+                           uint32_t color, int chart, float dim, float tuck,
+                           bool inside) {
   if (!ctx || !isfinite(band) || !isfinite(radius) || !isfinite(tuck)
       || !isfinite(win.origin.x) || !isfinite(win.origin.y)
       || !isfinite(win.size.width) || !isfinite(win.size.height)
       || win.size.width <= 0 || win.size.height <= 0) return;
   if (band < 2.f) band = 2.f;
-  radius = fmaxf(0.f, fminf(radius, fminf(win.size.width, win.size.height) * 0.5f));
+  float outerWidth = win.size.width + 2.f * band;
+  float outerHeight = win.size.height + 2.f * band;
+  radius = fmaxf(0.f, fminf(radius,
+      fminf(inside ? outerWidth : win.size.width,
+            inside ? outerHeight : win.size.height) * 0.5f));
   if (tuck < 1.f) tuck = 1.f;
   // never let the tuck swallow a small window
   float half = (win.size.width < win.size.height ? win.size.width
@@ -518,8 +523,9 @@ void knit_draw(CGContextRef ctx, CGRect win, float radius, float band,
 
   CGRect outer = CGRectInset(win, -band, -band);
   CGRect inner = CGRectInset(win, tuck, tuck);
-  float orad = radius + band;
-  float irad = radius > tuck ? radius - tuck : 0.f;
+  float orad = inside ? radius : radius + band;
+  float inset = inside ? band + tuck : tuck;
+  float irad = radius > inset ? radius - inset : 0.f;
 
   CGContextSaveGState(ctx);
 
@@ -687,4 +693,14 @@ void knit_draw(CGContextRef ctx, CGRect win, float radius, float band,
   if (cuff_tile.img) CGImageRelease(cuff_tile.img);
   if (cuff_ring) CFRelease(cuff_ring);
   CGContextRestoreGState(ctx);
+}
+
+void knit_draw(CGContextRef ctx, CGRect win, float radius, float band,
+               uint32_t color, int chart, float dim, float tuck) {
+  knit_draw_impl(ctx, win, radius, band, color, chart, dim, tuck, false);
+}
+
+void knit_draw_inside(CGContextRef ctx, CGRect inner, float outer_radius,
+                      float band, uint32_t color, int chart, float dim) {
+  knit_draw_impl(ctx, inner, outer_radius, band, color, chart, dim, 1.f, true);
 }

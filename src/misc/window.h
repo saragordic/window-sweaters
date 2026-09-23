@@ -5,6 +5,7 @@
 
 #define WINDOW_TAG_DOCUMENT      (1ULL << 0)
 #define WINDOW_TAG_FLOATING      (1ULL << 1)
+#define WINDOW_TAG_IGNORE_EVENTS (1ULL << 9)
 #define WINDOW_TAG_ATTACHED      (1ULL << 7)
 #define WINDOW_TAG_STICKY        (1ULL << 11)
 #define WINDOW_TAG_IGNORES_CYCLE (1ULL << 18)
@@ -228,7 +229,10 @@ static inline void window_send_to_space(int cid, uint32_t wid, uint64_t sid) {
 static inline uint32_t window_create(int cid, CGRect frame, bool hidpi, bool unmanaged) {
   uint32_t id;
   CFTypeRef frame_region = NULL;
-  uint64_t set_tags = (1ULL << 1) | (1ULL << 9);
+  // An inset knit is ordered over the owner's frame. Keep its surface
+  // transparent to mouse events so title-bar drags and edge controls still
+  // belong to the real window beneath it.
+  uint64_t set_tags = WINDOW_TAG_FLOATING | WINDOW_TAG_IGNORE_EVENTS;
   uint64_t clear_tags = 0;
 
   CGSNewRegionWithRect(&frame, &frame_region);
@@ -265,6 +269,13 @@ static inline uint32_t window_create(int cid, CGRect frame, bool hidpi, bool unm
   SLSSetWindowResolution(cid, wid, hidpi ? 2.0f : 1.0f);
   SLSSetWindowTags(cid, wid, &set_tags, 64);
   SLSClearWindowTags(cid, wid, &clear_tags, 64);
+  // On current macOS the ignore-events tag alone is not reflected on a
+  // newly-created overlay. Explicitly exclude it from hit testing as well.
+  if (SLSSetMouseEventEnableFlags(cid, wid, false) != kCGErrorSuccess) {
+    // Never leave an above-window surface able to intercept input.
+    SLSReleaseWindow(cid, wid);
+    return 0;
+  }
   SLSSetWindowOpacity(cid, wid, 0);
 
   CFIndex shadow_density = 0;

@@ -162,6 +162,10 @@ float knit_current_width(void) { return g_settings.border_width; }
 // Called by the menu after it turns an app on or off.
 void knit_apps_filter_changed(void) { windows_apply_app_filter(&g_windows); }
 
+// A saved per-app colour or chart changed in Preferences. Existing windows
+// need a redraw; newly opened windows read the same cached override.
+void knit_app_overrides_changed(void) { windows_update_all(&g_windows); }
+
 // Owners of every window that could wear a sweater, for the Apps menu.
 int knit_window_owners(int* pids, int capacity) {
   return windows_eligible_owners(pids, capacity);

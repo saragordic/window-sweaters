@@ -1,5 +1,6 @@
 #include "border.h"
 #include "misc/autoyarn.h"
+#include "misc/overrides.h"
 // A weak default so the test targets, which compile this file without the
 // ObjC module, still link. src/autoyarn.m provides the real implementation
 // and overrides this at link time in the app build.
@@ -13,6 +14,17 @@ __attribute__((weak))
 bool knit_zigzag_yarn(const char* app, pid_t pid, uint32_t* yarn, int* chart) {
   (void)app; (void)pid; (void)yarn; (void)chart; return false;
 }
+// The menu module supplies saved overrides in the app build. Native renderer
+// probes link without AppKit and keep the collection's ordinary behaviour.
+__attribute__((weak))
+unsigned knit_app_override(pid_t pid, uint32_t* yarn, int* chart) {
+  (void)pid; (void)yarn; (void)chart; return 0;
+}
+__attribute__((weak))
+void knit_auto_recolor(const char* app, pid_t pid, uint32_t yarn,
+                       int* chart, bool chart_overridden) {
+  (void)app; (void)pid; (void)yarn; (void)chart; (void)chart_overridden;
+}
 #include "misc/apps.h"
 #include "misc/chart.h"
 #include <math.h>
@@ -23,6 +35,13 @@ bool knit_zigzag_yarn(const char* app, pid_t pid, uint32_t* yarn, int* chart) {
 #include <time.h>
 
 extern struct settings g_settings;
+
+// The knit now lives within the target's rectangle. It must be ordered above
+// that window to remain visible; the legacy outline styles retain their order.
+static int border_display_order(const struct settings* settings) {
+  return settings->border_style == BORDER_STYLE_KNIT
+         ? BORDER_ORDER_ABOVE : settings->border_order;
+}
 
 struct settings* border_get_settings(struct border* border) {
   assert(pthread_main_np() != 0);
@@ -82,20 +101,32 @@ static bool border_calculate_bounds(struct border* border, CGRect* frame, struct
 
   border->target_bounds = window_frame;
   border->too_small = border_check_too_small(border, window_frame);
+  if (settings->border_style == BORDER_STYLE_KNIT
+      && (window_frame.size.width <= 2.f * settings->border_width + 2.f
+          || window_frame.size.height <= 2.f * settings->border_width + 2.f))
+    border->too_small = true;
   if (border->too_small) {
     border_hide(border);
     return false;
   }
 
-  float border_offset = - settings->border_width - BORDER_PADDING;
-  *frame = CGRectInset(window_frame, border_offset, border_offset);
-
-  border->origin = frame->origin;
-  frame->origin = CGPointZero;
-
-
-  window_frame.origin = (CGPoint){ -border_offset, -border_offset };
-  border->drawing_bounds = window_frame;
+  if (settings->border_style == BORDER_STYLE_KNIT) {
+    // Keep the whole overlay in the native window's bounds. macOS already
+    // stops that window at the menu bar and display edges when it is dragged.
+    // The ring is drawn inward from this rect, so none of its pixels extend
+    // into the menu bar or over adjacent desktop content.
+    *frame = window_frame;
+    border->origin = frame->origin;
+    frame->origin = CGPointZero;
+    border->drawing_bounds = *frame;
+  } else {
+    float border_offset = -settings->border_width - BORDER_PADDING;
+    *frame = CGRectInset(window_frame, border_offset, border_offset);
+    border->origin = frame->origin;
+    frame->origin = CGPointZero;
+    window_frame.origin = (CGPoint){ -border_offset, -border_offset };
+    border->drawing_bounds = window_frame;
+  }
 
   return true;
 }
@@ -133,15 +164,22 @@ static void border_draw(struct border* border, CGRect frame, struct settings* se
       }
     }
 
-    knit_draw(border->context,
-              border->drawing_bounds,
+    unsigned overrides = knit_app_override(border->owner_pid, &yarn, &chart);
+    if (overrides & KNIT_OVERRIDE_COLOR)
+      knit_auto_recolor(border->app, border->owner_pid, yarn, &chart,
+                        overrides & KNIT_OVERRIDE_CHART);
+    // Inset the input so the outer edge follows the actual window. Pass the
+    // native outer radius: a 12 pt band around a 9 pt corner still needs a
+    // 9 pt outer arc, not a 12 pt one with transparent corner gaps.
+    CGRect inner = CGRectInset(border->drawing_bounds,
+                               settings->border_width, settings->border_width);
+    knit_draw_inside(border->context,
+              inner,
               border->radius,
               settings->border_width,
               yarn,
               chart,
-              border->focused ? 0.f : g_knit_dim,
-              // drawn above the window, a deep tuck would cover its content
-              settings->border_order == BORDER_ORDER_ABOVE ? 1.f : g_knit.tuck);
+              border->focused ? 0.f : g_knit_dim);
     CGContextFlush(border->context);
     CGContextRestoreGState(border->context);
     SLSFlushWindowContentRegion(border->cid, border->wid, NULL);
@@ -257,7 +295,7 @@ void border_create_window(struct border* border, CGRect frame, bool unmanaged, b
 
   border->frame = frame;
   border->needs_redraw = true;
-  border->context = SLWindowContextCreate(cid, border->wid, NULL);
+  border->context = border->wid ? SLWindowContextCreate(cid, border->wid, NULL) : NULL;
   if (border->context) {
     CGContextSetInterpolationQuality(border->context, kCGInterpolationNone);
   } else {
@@ -398,7 +436,7 @@ void border_update_internal(struct border* border, struct settings* settings, co
   SLSTransactionSetWindowSubLevel(transaction, border->wid, border->sub_level);
   SLSTransactionOrderWindow(transaction,
                             border->wid,
-                            settings->border_order,
+                            border_display_order(settings),
                             border->target_wid      );
   SLSTransactionCommit(transaction, 0);
   CFRelease(transaction);
@@ -507,12 +545,10 @@ static void border_apply_geometry(struct border* border, CGRect window_frame) {
     pthread_mutex_unlock(&border->mutex);
     return;
   }
-  CGPoint origin = { .x = window_frame.origin.x
-                          - settings->border_width
-                          - BORDER_PADDING,
-                     .y = window_frame.origin.y
-                          - settings->border_width
-                          - BORDER_PADDING          };
+  CGPoint origin = settings->border_style == BORDER_STYLE_KNIT
+                    ? window_frame.origin
+                    : (CGPoint){ .x = window_frame.origin.x - settings->border_width - BORDER_PADDING,
+                                 .y = window_frame.origin.y - settings->border_width - BORDER_PADDING };
 
   CFTypeRef transaction = SLSTransactionCreate(border->cid);
   if (transaction) {
@@ -526,7 +562,7 @@ static void border_apply_geometry(struct border* border, CGRect window_frame) {
     // border's position and depth together.
     SLSTransactionOrderWindow(transaction,
                               border->wid,
-                              settings->border_order,
+                              border_display_order(settings),
                               border->target_wid     );
 
     SLSTransactionCommit(transaction, 0);
@@ -613,7 +649,7 @@ void border_reorder(struct border* border) {
   if (transaction) {
     SLSTransactionSetWindowLevel(transaction, border->wid, level);
     SLSTransactionSetWindowSubLevel(transaction, border->wid, sub_level);
-    SLSTransactionOrderWindow(transaction, border->wid, settings->border_order,
+    SLSTransactionOrderWindow(transaction, border->wid, border_display_order(settings),
                              border->target_wid);
     SLSTransactionCommit(transaction, 0);
     // Match the existing transaction paths: the private commit return is not
@@ -658,7 +694,7 @@ void border_unhide(struct border* border) {
     if (transaction) {
       SLSTransactionOrderWindow(transaction,
                                 border->wid,
-                                settings->border_order,
+                                border_display_order(settings),
                                 border->target_wid      );
       SLSTransactionCommit(transaction, 0);
       CFRelease(transaction);

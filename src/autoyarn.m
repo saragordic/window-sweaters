@@ -333,3 +333,27 @@ bool knit_zigzag_yarn(const char* app, pid_t pid, uint32_t* yarn, int* chart) {
   *chart = entry ? entry_chart(entry, "zigzag", CHART_ZIGZAG, contrast) : -1;
   return true;
 }
+
+void knit_auto_recolor(const char* app, pid_t pid, uint32_t yarn,
+                       int* chart, bool chart_overridden) {
+  if (!app || !*app || !chart) return;
+  int zigzag = knit_chart_index("zigzag");
+  bool shared_zigzag = knit_zigzag_active() && !chart_overridden;
+  bool chosen_zigzag = chart_overridden && *chart == zigzag;
+  if (shared_zigzag || chosen_zigzag) {
+    // Keep a user's hand-drawn zigzag.png as authored. Otherwise use a
+    // contrast selected from the new main yarn, not the old icon color.
+    if (zigzag < 0 || g_charts[zigzag].custom) return;
+    uint32_t contrast = knit_zigzag_contrast(yarn);
+    if (contrast == CREAM) { *chart = zigzag; return; }
+    struct auto_yarn* entry = auto_entry(app, pid);
+    *chart = entry ? entry_chart(entry, "zigzag", CHART_ZIGZAG, contrast) : -1;
+    return;
+  }
+  if (!g_knit_pattern_by_app || chart_overridden || knit_app_rule(app)) return;
+  // A non-curated By App motif is generated from its icon's contrast yarn.
+  // Rebuild only that one chart to match the color chosen in Preferences.
+  struct auto_yarn* entry = auto_entry(app, pid);
+  uint32_t contrast = knit_zigzag_contrast(yarn);
+  *chart = entry ? entry_chart(entry, by_app_motif(app), CHART_BY_APP, contrast) : -1;
+}

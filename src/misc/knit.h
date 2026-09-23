@@ -85,6 +85,11 @@ uint32_t knit_zigzag_contrast(uint32_t base);
 void knit_draw(CGContextRef ctx, CGRect win, float radius, float band,
                uint32_t color, int chart, float dim, float tuck);
 
+/// Draw the same knit inside a window. `inner` is inset by `band` from the
+/// native window rectangle; `outer_radius` is that native window's radius.
+void knit_draw_inside(CGContextRef ctx, CGRect inner, float outer_radius,
+                      float band, uint32_t color, int chart, float dim);
+
 /// How much an unfocused window's band is darkened, 0..1. This darkens rather
 /// than fading: the band stays fully opaque at any value, so the desktop never
 /// shows through it. 0 makes every window identical.

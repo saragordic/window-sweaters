@@ -24,6 +24,7 @@ extern CGError SLSNewWindow(int cid, int type, float x, float y, CFTypeRef regio
 extern CGError SLSNewWindowWithOpaqueShapeAndContext(int cid, int type, CFTypeRef region, CFTypeRef opaque_shape, int options, uint64_t *tags, float x, float y, int tag_size, uint32_t *wid, void *context);
 extern CGError SLSReleaseWindow(int cid, uint32_t wid);
 extern CGError SLSSetWindowTags(int cid, uint32_t wid, uint64_t* tags, int tag_size);
+extern CGError SLSSetMouseEventEnableFlags(int cid, uint32_t wid, bool enabled);
 extern CGError SLSClearWindowTags(int cid, uint32_t wid, uint64_t* tags, int tag_size);
 extern CGError SLSSetWindowShape(int cid, uint32_t wid, float x_offset, float y_offset, CFTypeRef shape);
 extern CGError SLSSetWindowResolution(int cid, uint32_t wid, double res);

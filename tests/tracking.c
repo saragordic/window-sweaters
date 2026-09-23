@@ -44,12 +44,20 @@ float g_knit_dim;
 int g_chart_active;
 mach_port_t g_server_port;
 static int draws;
+static CGRect last_knit_rect;
+static float last_knit_radius, last_knit_width;
 uint32_t knit_color_for_app(const char* app) { return 0; }
 const struct app_rule* knit_app_rule(const char* app) { return NULL; }
 int knit_chart_index(const char* name) { return -1; }
 int knit_pattern_for_app(const char* name) { return -1; }
 void knit_draw(CGContextRef c, CGRect r, float radius, float width, uint32_t color,
-               int chart, float dim, float tuck) { draws++; }
+               int chart, float dim, float tuck) {
+  draws++; last_knit_rect = r; last_knit_radius = radius; last_knit_width = width;
+}
+void knit_draw_inside(CGContextRef c, CGRect r, float radius, float width,
+                      uint32_t color, int chart, float dim) {
+  draws++; last_knit_rect = r; last_knit_radius = radius; last_knit_width = width;
+}
 
 static int released_surfaces;
 CGError mock_release_window(int cid, uint32_t wid) { assert(cid==1 && wid==2); released_surfaces++; return kCGErrorSuccess; }
@@ -208,18 +216,18 @@ int main(void) {
   border.radius = 9;
   border.inner_radius = 10;
   border.context = mock_context(1, 2, NULL);
-  border.frame = CGRectMake(0, 0, 236, 186);
-  border.drawing_bounds = CGRectMake(18, 18, 200, 150);
+  border.frame = CGRectMake(0, 0, 200, 150);
+  border.drawing_bounds = CGRectMake(0, 0, 200, 150);
   target = CGRectMake(100, 90, 200, 150);
 
   border_update_geometry(&border);
-  assert(moves == 1 && shapes == 0 && moved_to.x == 82 && moved_to.y == 72);
+  assert(moves == 1 && shapes == 0 && moved_to.x == 100 && moved_to.y == 90);
   // A size change arriving via MOVE must reshape, including a top-left resize.
   target = CGRectMake(80, 70, 220, 170);
   border_update_geometry(&border);
   assert(shapes == 1 && moves == 2);
   assert(CGSizeEqualToSize(border.drawing_bounds.size, target.size));
-  assert(moved_to.x == 62 && moved_to.y == 52 && !disabled && !frozen);
+  assert(moved_to.x == 80 && moved_to.y == 70 && !disabled && !frozen);
 
   // The matching RESIZE and settling check see the same bounds. Neither may
   // submit another transaction, reshape, rebind or paint the existing sweater.
@@ -239,20 +247,26 @@ int main(void) {
   fail_transaction = false;
   fail_shape = true;
   border_update_geometry(&border);
-  assert(!disabled && !frozen && border.frame.size.width == 256);
+  assert(!disabled && !frozen && border.frame.size.width == 220);
   fail_shape = false;
   fail_context = true;
   border_update_geometry(&border);
   assert(!disabled && !frozen && border.context && border.needs_redraw);
   fail_context = false;
   border_update_geometry(&border);
-  assert(border.frame.size.width == 286 && !disabled && !frozen && !border.needs_redraw && border.geometry_valid);
+  assert(border.frame.size.width == 250 && !disabled && !frozen && !border.needs_redraw && border.geometry_valid);
 
   // Explicit appearance work still runs at unchanged geometry.
   old_flushes = flushes;
+  g_knit_on = true;
   border.needs_redraw = true;
   border_update_geometry(&border);
   assert(flushes == old_flushes + 1 && !border.needs_redraw);
+  // The painted ring's outer edge is exactly the native window rectangle.
+  assert(CGRectEqualToRect(CGRectInset(last_knit_rect, -last_knit_width, -last_knit_width),
+                           border.drawing_bounds));
+  assert(last_knit_radius == border.radius);
+  g_knit_on = false;
 
   // Hiding invalidates the shortcut, so unchanged bounds can be restored.
   border_hide(&border);
@@ -337,7 +351,7 @@ int main(void) {
   check_reorder(&border, 1, 1);
   assert(border.level == 11 && border.sub_level == 23);
   assert(applied_level == 11 && applied_sublevel == 23 && level_wid == 2 && sublevel_wid == 2);
-  assert(ordered_wid == 2 && relative_wid == 3 && applied_order == BORDER_ORDER_BELOW);
+  assert(ordered_wid == 2 && relative_wid == 3 && applied_order == BORDER_ORDER_ABOVE);
   // A window override, including above/below preference, remains authoritative.
   border.setting_override = g_settings;
   border.setting_override.enabled = true;

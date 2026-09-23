@@ -9,11 +9,13 @@
 #include "misc/knit.h"
 #include "misc/chart.h"
 #include "misc/apps.h"
+#include "misc/overrides.h"
 #include "misc/status_icon.h"
 #include <stdio.h>
 
 extern void knit_apply(const char* arg);   // main.c: feeds one "key=value"
 extern void knit_apps_filter_changed(void); // main.c: re-run the app gate
+extern void knit_app_overrides_changed(void) __attribute__((weak_import));
 extern bool g_knit_on;
 
 enum { KNIT_MENU_HEADER_TAG = 0x6864 };   // a label, not a command
@@ -31,6 +33,7 @@ enum { KNIT_MENU_HEADER_TAG = 0x6864 };   // a label, not a command
 
 static NSArray<KnitMenuApp*>* knit_menu_candidates(void);   // every running app
 static NSSet<NSNumber*>* knit_menu_window_owners(void);     // pids with eligible windows
+static NSMutableDictionary<NSString*, NSMutableDictionary*>* g_app_overrides;
 
 // Which running apps the Apps menu lists, sorted by name: those in the Dock,
 // any app owning a window that could wear a sweater (worn now or not), and any
@@ -119,10 +122,17 @@ static bool knit_menu_colourwork(void) {
 }
 
 static float knit_menu_minimum_rows(void) {
-  if (!knit_menu_colourwork()) return 3.f;
+  float minimum = knit_menu_colourwork() ? 6.f : 3.f;
   if (!g_knit_pattern_by_app && knit_menu_chart_selectable(g_chart_active))
-    return MAX(6, g_charts[g_chart_active].h);
-  return 6.f;
+    minimum = MAX(minimum, g_charts[g_chart_active].h);
+  for (NSDictionary* rule in g_app_overrides.allValues) {
+    NSString* name = rule[@"chart"];
+    if (![name isKindOfClass:NSString.class] || [name isEqualToString:@"none"]) continue;
+    int index = knit_chart_index(name.UTF8String);
+    if (knit_menu_chart_selectable(index))
+      minimum = MAX(minimum, MAX(6, g_charts[index].h));
+  }
+  return minimum;
 }
 
 static NSString* knit_menu_chart_title(const char* name) {
@@ -164,6 +174,50 @@ static bool knit_menu_path_available(const char* path, bool directory) {
          && isDirectory == directory;
 }
 
+// UI overrides are keyed by the app's bundle identifier, which survives
+// process-name changes. Keep the hand-edited apps.conf untouched. A rule has
+// independent colour and chart fields, so clearing one preserves the other.
+static NSMutableDictionary* knit_override(NSString* bundleID) {
+  if (!bundleID.length) return nil;
+  id value = g_app_overrides[bundleID];
+  return [value isKindOfClass:NSMutableDictionary.class] ? value : nil;
+}
+
+static uint32_t knit_rgb(NSString* value) {
+  if (![value isKindOfClass:NSString.class] || value.length != 7
+      || ![value hasPrefix:@"#"]) return 0;
+  NSScanner* scanner = [NSScanner scannerWithString:[value substringFromIndex:1]];
+  unsigned int rgb = 0;
+  if (![scanner scanHexInt:&rgb] || !scanner.isAtEnd) return 0;
+  return 0xff000000u | rgb;
+}
+
+unsigned knit_app_override(pid_t pid, uint32_t* yarn, int* chart) {
+  if (!g_app_overrides.count || pid <= 0) return 0;
+  NSString* bundleID = [NSRunningApplication
+      runningApplicationWithProcessIdentifier:pid].bundleIdentifier;
+  NSDictionary* override = knit_override(bundleID);
+  if (!override) return 0;
+  unsigned changed = 0;
+  uint32_t color = knit_rgb(override[@"color"]);
+  if (color) { *yarn = color; changed |= KNIT_OVERRIDE_COLOR; }
+  NSString* name = override[@"chart"];
+  if ([name isKindOfClass:NSString.class]) {
+    if ([name isEqualToString:@"none"]) { *chart = -1; changed |= KNIT_OVERRIDE_CHART; }
+    else {
+      int selected = knit_chart_index(name.UTF8String);
+      if (selected >= 0) { *chart = selected; changed |= KNIT_OVERRIDE_CHART; }
+    }
+  }
+  return changed;
+}
+
+static void knit_save_overrides(void) {
+  [NSUserDefaults.standardUserDefaults setObject:g_app_overrides ?: @{}
+                                         forKey:@"appOverrides"];
+  if (knit_app_overrides_changed) knit_app_overrides_changed();
+}
+
 // Menu choices survive a restart, the way a menu bar app should.
 static void knit_save_prefs(void) {
   NSUserDefaults* d = NSUserDefaults.standardUserDefaults;
@@ -189,6 +243,15 @@ static void knit_load_prefs(void) {
   // Older versions saved a global chart even while app profiles overrode it.
   // A missing mode therefore migrates to By App, preserving those sweaters.
   [d registerDefaults:@{ @"on": @YES, @"yarn": @0, @"basket": @3, @"width": @12.0f, @"gauge": @6.0f, @"chart": @"none", @"patternByApp": @YES, @"anchor": @0, @"appsOnByDefault": @YES, @"appExceptions": @[] }];
+  g_app_overrides = [NSMutableDictionary dictionary];
+  id savedOverrides = [d objectForKey:@"appOverrides"];
+  if ([savedOverrides isKindOfClass:NSDictionary.class]) {
+    for (id key in savedOverrides) {
+      id value = savedOverrides[key];
+      if ([key isKindOfClass:NSString.class] && [value isKindOfClass:NSDictionary.class])
+        g_app_overrides[key] = [value mutableCopy];
+    }
+  }
   char buf[128];
 
   NSInteger y = [d integerForKey:@"yarn"];
@@ -242,6 +305,12 @@ static void knit_load_prefs(void) {
 @property(strong) NSStatusItem* item;
 @property(strong) NSMutableDictionary<NSString*, NSImage*>* swatches;
 @property(strong) id activity;
+@property(strong) NSWindow* preferencesWindow;
+@property(strong) NSView* preferencesDetail;
+@property(copy) NSString* preferencesSection;
+@property(copy) NSString* selectedAppID;
+@property(strong) NSColorWell* colorWell;
+- (void)rebuildPreferences;
 @end
 
 @implementation KnitMenu
@@ -257,6 +326,10 @@ static void knit_load_prefs(void) {
     }
   }
   knit_apply(argument.UTF8String);
+  if (g_knit.rows < knit_menu_minimum_rows()) {
+    NSString* gauge = [NSString stringWithFormat:@"gauge=%g", knit_menu_minimum_rows()];
+    knit_apply(gauge.UTF8String);
+  }
   if ([argument isEqualToString:@"apps=reload"] ||
       [argument isEqualToString:@"charts=reload"]) {
     [self.swatches removeAllObjects];
@@ -266,13 +339,19 @@ static void knit_load_prefs(void) {
     }
   }
   knit_save_prefs();
+  [self rebuildPreferences];
 }
 
 - (void)selectPlain:(NSMenuItem*)sender {
   knit_apply("chart=none");
   NSString* argument = sender.representedObject;
   knit_apply(argument.UTF8String);
+  if (g_knit.rows < knit_menu_minimum_rows()) {
+    NSString* gauge = [NSString stringWithFormat:@"gauge=%g", knit_menu_minimum_rows()];
+    knit_apply(gauge.UTF8String);
+  }
   knit_save_prefs();
+  [self rebuildPreferences];
 }
 
 - (void)updateStatus {
@@ -302,6 +381,7 @@ static void knit_load_prefs(void) {
   knit_apply(g_knit_on ? "knit=off" : "knit=on");
   knit_save_prefs();
   [self updateStatus];
+  [self rebuildPreferences];
 }
 
 - (void)toggleApp:(NSMenuItem*)sender {
@@ -310,6 +390,7 @@ static void knit_load_prefs(void) {
   knit_save_prefs();
   knit_apps_filter_changed();
   [self updateStatus];
+  [self rebuildPreferences];
 }
 
 - (void)setAllApps:(NSMenuItem*)sender {
@@ -317,6 +398,7 @@ static void knit_load_prefs(void) {
   knit_save_prefs();
   knit_apps_filter_changed();
   [self updateStatus];
+  [self rebuildPreferences];
 }
 
 - (NSMenuItem*)addApp:(KnitMenuApp*)app to:(NSMenu*)menu {
@@ -406,6 +488,342 @@ static void knit_load_prefs(void) {
   item.target = self;
   item.enabled = YES;
   [menu addItem:item];
+}
+
+// Preferences uses the same actions and live values as the status menu.
+// Building its global selectors from a fresh menu also keeps custom charts,
+// width choices and minimum stitch sizes in one place.
+- (NSTextField*)preferenceLabel:(NSString*)title y:(CGFloat)y bold:(BOOL)bold {
+  NSTextField* label = [NSTextField labelWithString:title];
+  label.frame = NSMakeRect(28, y, 500, bold ? 27 : 22);
+  label.font = bold ? [NSFont boldSystemFontOfSize:18] : [NSFont systemFontOfSize:13];
+  [self.preferencesDetail addSubview:label];
+  return label;
+}
+
+- (NSArray<KnitMenuApp*>*)preferenceApps {
+  NSMutableArray<KnitMenuApp*>* result = [knit_menu_apps(knit_menu_candidates(),
+      knit_menu_window_owners(), NSProcessInfo.processInfo.processIdentifier) mutableCopy];
+  NSMutableSet* seen = [NSMutableSet set];
+  for (KnitMenuApp* app in result) [seen addObject:app.bundleID];
+  for (NSString* bundleID in g_app_overrides) {
+    if ([seen containsObject:bundleID]) continue;
+    KnitMenuApp* app = [KnitMenuApp new];
+    app.bundleID = bundleID;
+    id savedName = knit_override(bundleID)[@"name"];
+    app.name = [savedName isKindOfClass:NSString.class] && [savedName length]
+               ? savedName : bundleID;
+    [result addObject:app];
+  }
+  [result sortUsingComparator:^NSComparisonResult(KnitMenuApp* a, KnitMenuApp* b) {
+    return [a.name localizedStandardCompare:b.name];
+  }];
+  return result;
+}
+
+- (void)storeOverrideField:(NSString*)field value:(NSString*)value {
+  if (!self.selectedAppID.length) return;
+  NSMutableDictionary* rule = knit_override(self.selectedAppID);
+  if (!rule) {
+    rule = [NSMutableDictionary dictionary];
+    g_app_overrides[self.selectedAppID] = rule;
+  }
+  if (value) rule[field] = value;
+  else [rule removeObjectForKey:field];
+  if (!rule[@"color"] && !rule[@"chart"] && !rule[@"name"])
+    [g_app_overrides removeObjectForKey:self.selectedAppID];
+  if (g_knit.rows < knit_menu_minimum_rows()) {
+    NSString* gauge = [NSString stringWithFormat:@"gauge=%g", knit_menu_minimum_rows()];
+    knit_apply(gauge.UTF8String);
+    knit_save_prefs();
+  }
+  knit_save_overrides();
+  [self rebuildPreferences];
+}
+
+- (void)preferenceSectionChanged:(NSButton*)sender {
+  self.preferencesSection = @[@"General", @"Appearance", @"Apps"][(NSUInteger)sender.tag];
+  for (NSView* view in self.preferencesWindow.contentView.subviews.firstObject.subviews)
+    if ([view isKindOfClass:NSButton.class])
+      ((NSButton*)view).state = view == sender ? NSControlStateValueOn : NSControlStateValueOff;
+  [self rebuildPreferences];
+}
+
+- (void)openPreferences:(id)sender {
+  if (!self.preferencesWindow) {
+    NSRect frame = NSMakeRect(0, 0, 740, 520);
+    self.preferencesWindow = [[NSWindow alloc] initWithContentRect:frame
+        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+          | NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:NO];
+    self.preferencesWindow.title = @"Window Sweaters Preferences";
+    self.preferencesWindow.releasedWhenClosed = NO;
+    [self.preferencesWindow center];
+    NSView* root = [[NSView alloc] initWithFrame:frame];
+    self.preferencesWindow.contentView = root;
+    NSVisualEffectView* sidebar = [[NSVisualEffectView alloc]
+        initWithFrame:NSMakeRect(0, 0, 176, 520)];
+    sidebar.material = NSVisualEffectMaterialSidebar;
+    sidebar.blendingMode = NSVisualEffectBlendingModeWithinWindow;
+    [root addSubview:sidebar];
+    NSArray* sections = @[@"General", @"Appearance", @"Apps"];
+    for (NSUInteger i = 0; i < sections.count; i++) {
+      NSButton* button = [NSButton buttonWithTitle:sections[i]
+          target:self action:@selector(preferenceSectionChanged:)];
+      button.frame = NSMakeRect(15, 445 - (CGFloat)i * 43, 146, 34);
+      button.tag = i;
+      [button setButtonType:NSButtonTypeOnOff];
+      button.bezelStyle = NSBezelStyleRecessed;
+      button.alignment = NSTextAlignmentLeft;
+      [sidebar addSubview:button];
+    }
+    self.preferencesDetail = [[NSView alloc] initWithFrame:NSMakeRect(176, 0, 564, 520)];
+    [root addSubview:self.preferencesDetail];
+    self.preferencesSection = @"General";
+    ((NSButton*)sidebar.subviews.firstObject).state = NSControlStateValueOn;
+  }
+  [self rebuildPreferences];
+  [self.preferencesWindow makeKeyAndOrderFront:nil];
+  [NSApp activateIgnoringOtherApps:YES];
+}
+
+- (void)preferenceToggle:(NSButton*)sender {
+  [self toggle:nil];
+}
+
+- (void)preferenceAppearanceChanged:(NSPopUpButton*)sender {
+  NSString* argument = sender.selectedItem.representedObject;
+  if (!argument.length) return;
+  NSMenuItem* selection = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
+  selection.representedObject = argument;
+  if ([argument hasPrefix:@"yarn="]) [self selectPlain:selection];
+  else [self apply:selection];
+}
+
+- (NSPopUpButton*)preferencePopupFor:(NSMenu*)choices y:(CGFloat)y {
+  NSPopUpButton* popup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(28, y, 420, 32)
+                                                    pullsDown:NO];
+  popup.target = self;
+  popup.action = @selector(preferenceAppearanceChanged:);
+  NSInteger selected = -1;
+  NSMutableArray<NSMenuItem*>* items = [NSMutableArray array];
+  for (NSMenuItem* choice in choices.itemArray) {
+    if (choice.submenu) [items addObjectsFromArray:choice.submenu.itemArray];
+    else [items addObject:choice];
+  }
+  for (NSMenuItem* choice in items) {
+    if (choice.isSeparatorItem || ![choice.representedObject isKindOfClass:NSString.class]
+        || !choice.enabled) continue;
+    [popup addItemWithTitle:choice.title];
+    popup.lastItem.representedObject = choice.representedObject;
+    if (choice.state == NSControlStateValueOn) selected = popup.numberOfItems - 1;
+  }
+  if (selected >= 0) [popup selectItemAtIndex:selected];
+  [self.preferencesDetail addSubview:popup];
+  return popup;
+}
+
+- (void)preferenceEnabledChanged:(NSPopUpButton*)sender {
+  NSString* choice = sender.selectedItem.representedObject;
+  if ([choice isEqualToString:@"__all_on"] || [choice isEqualToString:@"__all_off"]) {
+    if (knit_apps_set_all([choice isEqualToString:@"__all_on"])) {
+      knit_save_prefs(); knit_apps_filter_changed(); [self updateStatus];
+    }
+  } else if (choice.length && knit_app_set_hidden(choice.UTF8String,
+                                                  !knit_app_hidden(choice.UTF8String))) {
+    knit_save_prefs(); knit_apps_filter_changed(); [self updateStatus];
+  }
+  [self rebuildPreferences];
+}
+
+- (void)preferenceAppChanged:(NSPopUpButton*)sender {
+  self.selectedAppID = sender.selectedItem.representedObject;
+  [self rebuildPreferences];
+}
+
+- (void)preferenceChooseApp:(id)sender {
+  NSOpenPanel* panel = [NSOpenPanel openPanel];
+  panel.allowedContentTypes = @[UTTypeApplicationBundle];
+  panel.canChooseDirectories = NO;
+  panel.allowsMultipleSelection = NO;
+  [panel beginSheetModalForWindow:self.preferencesWindow completionHandler:^(NSModalResponse response) {
+    if (response != NSModalResponseOK) return;
+    NSBundle* bundle = [NSBundle bundleWithURL:panel.URL];
+    NSString* bundleID = bundle.bundleIdentifier;
+    if (!bundleID.length) return;
+    NSString* name = [bundle objectForInfoDictionaryKey:@"CFBundleDisplayName"]
+        ?: [bundle objectForInfoDictionaryKey:@"CFBundleName"]
+        ?: panel.URL.URLByDeletingPathExtension.lastPathComponent;
+    self.selectedAppID = bundleID;
+    [self storeOverrideField:@"name" value:name];
+  }];
+}
+
+- (void)preferenceDefaultColorChanged:(NSButton*)sender {
+  if (sender.state == NSControlStateValueOn) [self storeOverrideField:@"color" value:nil];
+  else {
+    self.colorWell.enabled = YES;
+    [self preferenceColorChanged:self.colorWell];
+  }
+}
+
+- (void)preferenceColorChanged:(NSColorWell*)sender {
+  NSColor* color = [sender.color colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+  if (!color) return;
+  NSString* hex = [NSString stringWithFormat:@"#%02X%02X%02X",
+      (unsigned)lrint(color.redComponent * 255),
+      (unsigned)lrint(color.greenComponent * 255),
+      (unsigned)lrint(color.blueComponent * 255)];
+  if (!self.selectedAppID.length) return;
+  NSMutableDictionary* rule = knit_override(self.selectedAppID);
+  if (!rule) {
+    rule = [NSMutableDictionary dictionary];
+    g_app_overrides[self.selectedAppID] = rule;
+  }
+  rule[@"color"] = hex;
+  // Keep this color well alive while the shared Colors panel is in use.
+  knit_save_overrides();
+}
+
+- (void)preferenceChartChanged:(NSPopUpButton*)sender {
+  NSString* chart = sender.selectedItem.representedObject;
+  if ([chart isEqualToString:@"default"]) chart = nil;
+  if (chart && ![chart isEqualToString:@"none"]) {
+    int index = knit_chart_index(chart.UTF8String);
+    if (!knit_menu_chart_valid(index)) return;
+    float minimum = MAX(6, g_charts[index].h);
+    if (g_knit.rows < minimum) {
+      NSString* gauge = [NSString stringWithFormat:@"gauge=%g", minimum];
+      knit_apply(gauge.UTF8String);
+      knit_save_prefs();
+    }
+  }
+  [self storeOverrideField:@"chart" value:chart];
+}
+
+- (void)preferenceResetApp:(id)sender {
+  if (!self.selectedAppID.length) return;
+  [g_app_overrides removeObjectForKey:self.selectedAppID];
+  knit_save_overrides();
+  [self rebuildPreferences];
+}
+
+- (void)rebuildPreferences {
+  if (!self.preferencesWindow || !self.preferencesDetail) return;
+  for (NSView* subview in [self.preferencesDetail.subviews copy]) [subview removeFromSuperview];
+  NSString* section = self.preferencesSection ?: @"General";
+  [self preferenceLabel:section y:464 bold:YES];
+  if ([section isEqualToString:@"General"]) {
+    NSButton* enabled = [NSButton checkboxWithTitle:@"Show Sweater Borders"
+        target:self action:@selector(preferenceToggle:)];
+    enabled.frame = NSMakeRect(28, 402, 370, 28);
+    enabled.state = g_knit_on ? NSControlStateValueOn : NSControlStateValueOff;
+    [self.preferencesDetail addSubview:enabled];
+    [self preferenceLabel:@"Sweaters follow your windows while this app is running."
+                           y:366 bold:NO];
+    NSButton* quit = [NSButton buttonWithTitle:@"Quit Window Sweaters"
+        target:self action:@selector(quit:)];
+    quit.frame = NSMakeRect(28, 52, 180, 32);
+    [self.preferencesDetail addSubview:quit];
+  } else if ([section isEqualToString:@"Appearance"]) {
+    NSMenu* choices = [[NSMenu alloc] initWithTitle:@"Preferences choices"];
+    [self rebuild:choices];
+    [self preferenceLabel:@"Pattern" y:416 bold:NO];
+    [self preferencePopupFor:[choices itemWithTitle:@"Pattern"].submenu y:378];
+    [self preferenceLabel:@"Border Width" y:324 bold:NO];
+    [self preferencePopupFor:[choices itemWithTitle:@"Border Width"].submenu y:286];
+    [self preferenceLabel:@"Stitch Size" y:232 bold:NO];
+    [self preferencePopupFor:[choices itemWithTitle:@"Stitch Size"].submenu y:194];
+  } else {
+    [self preferenceLabel:@"Enabled Apps" y:418 bold:NO];
+    NSPopUpButton* enabled = [[NSPopUpButton alloc]
+        initWithFrame:NSMakeRect(28, 380, 420, 32) pullsDown:YES];
+    enabled.target = self;
+    enabled.action = @selector(preferenceEnabledChanged:);
+    [enabled addItemWithTitle:@"Enabled Apps"];
+    [enabled addItemWithTitle:@"Turn On for All Apps"];
+    enabled.lastItem.representedObject = @"__all_on";
+    [enabled addItemWithTitle:@"Turn Off for All Apps"];
+    enabled.lastItem.representedObject = @"__all_off";
+    [enabled.menu addItem:[NSMenuItem separatorItem]];
+    NSArray<KnitMenuApp*>* apps = [self preferenceApps];
+    for (KnitMenuApp* app in apps) {
+      [enabled addItemWithTitle:app.name];
+      enabled.lastItem.representedObject = app.bundleID;
+      enabled.lastItem.state = knit_app_hidden(app.bundleID.UTF8String)
+          ? NSControlStateValueOff : NSControlStateValueOn;
+      enabled.lastItem.image = app.icon;
+    }
+    [self.preferencesDetail addSubview:enabled];
+    [self preferenceLabel:@"Colors and patterns" y:317 bold:NO];
+    NSPopUpButton* appPopup = [[NSPopUpButton alloc]
+        initWithFrame:NSMakeRect(28, 279, 310, 32) pullsDown:NO];
+    appPopup.target = self;
+    appPopup.action = @selector(preferenceAppChanged:);
+    BOOL selectedFound = NO;
+    for (KnitMenuApp* app in apps) {
+      [appPopup addItemWithTitle:app.name];
+      appPopup.lastItem.representedObject = app.bundleID;
+      if ([app.bundleID isEqualToString:self.selectedAppID]) {
+        [appPopup selectItem:appPopup.lastItem]; selectedFound = YES;
+      }
+    }
+    if (!selectedFound) self.selectedAppID = appPopup.selectedItem.representedObject;
+    [self.preferencesDetail addSubview:appPopup];
+    NSButton* choose = [NSButton buttonWithTitle:@"Choose App…"
+        target:self action:@selector(preferenceChooseApp:)];
+    choose.frame = NSMakeRect(350, 279, 136, 32);
+    [self.preferencesDetail addSubview:choose];
+    if (!self.selectedAppID.length) {
+      [self preferenceLabel:@"Open an app or choose one to customize it."
+                             y:225 bold:NO];
+      return;
+    }
+    NSMutableDictionary* rule = knit_override(self.selectedAppID);
+    KnitMenuApp* chosen = nil;
+    for (KnitMenuApp* app in apps)
+      if ([app.bundleID isEqualToString:self.selectedAppID]) { chosen = app; break; }
+    uint32_t rgb = knit_rgb(rule[@"color"]);
+    if (!rgb) {
+      const struct app_rule* builtIn = knit_app_rule(chosen.name.UTF8String);
+      rgb = builtIn ? builtIn->color : knit_color_for_app(chosen.name.UTF8String);
+    }
+    [self preferenceLabel:@"Color" y:228 bold:NO];
+    self.colorWell = [[NSColorWell alloc] initWithFrame:NSMakeRect(28, 188, 68, 30)];
+    self.colorWell.color = [NSColor colorWithSRGBRed:((rgb >> 16) & 255) / 255.0
+        green:((rgb >> 8) & 255) / 255.0 blue:(rgb & 255) / 255.0 alpha:1];
+    self.colorWell.enabled = rule[@"color"] != nil;
+    self.colorWell.target = self;
+    self.colorWell.action = @selector(preferenceColorChanged:);
+    [self.preferencesDetail addSubview:self.colorWell];
+    NSButton* defaultColor = [NSButton checkboxWithTitle:@"Use default color"
+        target:self action:@selector(preferenceDefaultColorChanged:)];
+    defaultColor.frame = NSMakeRect(115, 189, 260, 28);
+    defaultColor.state = rule[@"color"] ? NSControlStateValueOff : NSControlStateValueOn;
+    [self.preferencesDetail addSubview:defaultColor];
+    [self preferenceLabel:@"Pattern" y:150 bold:NO];
+    NSPopUpButton* chartPopup = [[NSPopUpButton alloc]
+        initWithFrame:NSMakeRect(28, 112, 420, 32) pullsDown:NO];
+    chartPopup.target = self;
+    chartPopup.action = @selector(preferenceChartChanged:);
+    [chartPopup addItemWithTitle:@"Use default pattern"];
+    chartPopup.lastItem.representedObject = @"default";
+    [chartPopup addItemWithTitle:@"Plain"];
+    chartPopup.lastItem.representedObject = @"none";
+    for (int i = 0; i < g_chart_count; i++) {
+      if (!knit_menu_chart_selectable(i)) continue;
+      [chartPopup addItemWithTitle:knit_menu_chart_title(g_charts[i].name)];
+      chartPopup.lastItem.representedObject = [NSString stringWithUTF8String:g_charts[i].name];
+    }
+    NSString* selectedChart = rule[@"chart"] ?: @"default";
+    for (NSMenuItem* item in chartPopup.itemArray)
+      if ([item.representedObject isEqual:selectedChart]) [chartPopup selectItem:item];
+    [self.preferencesDetail addSubview:chartPopup];
+    NSButton* reset = [NSButton buttonWithTitle:@"Reset App Overrides"
+        target:self action:@selector(preferenceResetApp:)];
+    reset.frame = NSMakeRect(28, 49, 172, 32);
+    reset.enabled = rule[@"color"] || rule[@"chart"];
+    [self.preferencesDetail addSubview:reset];
+  }
 }
 
 // Small, cached colour samples keep the native menu easy to scan. Their
@@ -605,6 +1023,11 @@ static void knit_load_prefs(void) {
         arg:[NSString stringWithFormat:@"gauge=%g", g_knit.rows] on:YES];
   }
 
+  [menu addItem:[NSMenuItem separatorItem]];
+  NSMenuItem* preferences = [[NSMenuItem alloc] initWithTitle:@"Preferences"
+      action:@selector(openPreferences:) keyEquivalent:@","];
+  preferences.target = self;
+  [menu addItem:preferences];
   [menu addItem:[NSMenuItem separatorItem]];
   NSMenuItem* quit = [[NSMenuItem alloc] initWithTitle:@"Quit Window Sweaters"
                                              action:@selector(quit:) keyEquivalent:@"q"];

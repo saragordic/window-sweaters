@@ -58,6 +58,7 @@ static KnitMenuApp* fake_app(NSString* bundleID, NSString* name) { return app_wi
 static NSArray<KnitMenuApp*>* knit_menu_candidates(void) { return running_apps; }
 static NSSet<NSNumber*>* knit_menu_window_owners(void) { return window_owners; }
 void knit_apps_filter_changed(void) { filter_changes++; }
+void knit_app_overrides_changed(void) {}
 static NSArray<NSString*>* titles(NSMenu* menu) {
   NSMutableArray* result = [NSMutableArray array];
   for (NSMenuItem* item in menu.itemArray) [result addObject:item.isSeparatorItem ? @"-" : item.title];
@@ -93,6 +94,8 @@ int knit_chart_index(const char* name) {
 }
 const char* knit_apps_path(void) { return paths_available ? "tests/menu.m" : ""; }
 const char* knit_charts_dir(void) { return paths_available ? "/private/tmp" : ""; }
+const struct app_rule* knit_app_rule(const char* app) { return NULL; }
+uint32_t knit_color_for_app(const char* app) { return 0xff123456u; }
 int knit_apps_load(void) { return 0; }
 int knit_charts_load(const char* directory) { (void)directory; return g_chart_count; }
 void knit_apply(const char* argument) {
@@ -282,16 +285,21 @@ int main(void) {
     menu.autoenablesItems = NO;
     [controller rebuild:menu];
     NSArray* expected = @[@"Show Sweater Borders", @"Apps", @"Pattern", @"Border Width", @"Stitch Size",
-                         @"", @"Quit Window Sweaters"];
+                         @"", @"Preferences", @"", @"Quit Window Sweaters"];
     assert(menu.numberOfItems == expected.count);
     for (NSInteger i = 0; i < menu.numberOfItems; i++)
       assert([[menu itemAtIndex:i].title isEqualToString:expected[i]]);
     check_actions(menu);
     NSMenu* patterns = submenu(menu, @"Pattern");
+    assert([menu itemWithTitle:@"Preferences"].action == @selector(openPreferences:));
+    assert([[menu itemWithTitle:@"Preferences"].keyEquivalent isEqualToString:@","]);
     assert(checked_count(patterns) == 1);
     assert(![patterns itemWithTitle:@"Stitch Style"] && ![patterns itemWithTitle:@"Awning"]);
     NSMenu* customs = submenu(patterns, @"Custom Patterns");
     assert([customs itemWithTitle:@"My Flowers"] && ![customs itemWithTitle:@"Too Tall"]);
+    controller.preferencesDetail = [NSView new];
+    NSPopUpButton* preferencePatterns = [controller preferencePopupFor:patterns y:0];
+    assert([preferencePatterns itemWithTitle:@"My Flowers"]);
     assert(![customs itemWithTitle:@"Empty"] && ![customs itemWithTitle:@"Invisible"]);
     for (NSMenuItem* item in customs.itemArray)
       assert([item.title rangeOfString:@"Auto" options:NSCaseInsensitiveSearch].location == NSNotFound);
@@ -386,6 +394,17 @@ int main(void) {
     assert([[KnitTestDefaults standardUserDefaults] floatForKey:@"gauge"] == 6);
     test_listing();
     test_apps(controller, menu);
+    controller.selectedAppID = @"com.example.example";
+    [controller storeOverrideField:@"color" value:@"#A1B2C3"];
+    [controller storeOverrideField:@"chart" value:@"zigzag"];
+    assert(knit_rgb(knit_override(controller.selectedAppID)[@"color"]) == 0xffa1b2c3u);
+    assert([knit_override(controller.selectedAppID)[@"chart"] isEqualToString:@"zigzag"]);
+    knit_load_prefs();
+    assert([knit_override(controller.selectedAppID)[@"chart"] isEqualToString:@"zigzag"]);
+    [controller storeOverrideField:@"color" value:nil];
+    assert(!knit_override(controller.selectedAppID)[@"color"]);
+    [controller preferenceResetApp:nil];
+    assert(!knit_override(controller.selectedAppID));
     puts("PASS: per-app switches: listing rules, sorted, truthful, persisted, reversible, all on and all off");
     puts("PASS: native menu structure, truthful state, working selections, chart filtering, gauge limits, cached swatches");
   }
