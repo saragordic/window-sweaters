@@ -1,4 +1,5 @@
 #include "border.h"
+#include "misc/autoyarn.h"
 #include "hashtable.h"
 #include "events.h"
 #include "reconcile.h"
@@ -19,8 +20,8 @@
 #define HELP_OPT_SHRT "-h"
 
 #define MAJOR 1
-#define MINOR 4
-#define PATCH 31
+#define MINOR 5
+#define PATCH 0
 
 // Resolved via dlsym because of availability
 CFArrayRef (* JBSLSWindowIteratorGetCornerRadii)(CFTypeRef) = NULL;
@@ -68,6 +69,21 @@ static TABLE_HASH_FUNC(hash_blacklist) {
 
 static TABLE_COMPARE_FUNC(cmp_blacklist) {
   return strcmp((char*)key_a, (char*)key_b) == 0;
+}
+
+// Icon jobs never retain border pointers: the target may close before the
+// answer arrives. Resolve surviving owners on the main thread instead.
+void knit_auto_yarn_ready(pid_t pid) {
+  assert(pthread_main_np());
+  for (int i = 0; i < g_windows.capacity; i++) {
+    for (struct bucket* b = g_windows.buckets[i]; b; b = b->next) {
+      struct border* border = b->value;
+      if (border && border->owner_pid == pid) {
+        border->needs_redraw = true;
+        border_update(border, true);
+      }
+    }
+  }
 }
 
 static void message_handler(void* data, uint32_t len) {
@@ -143,6 +159,14 @@ void knit_apply(const char* arg) {
 
 float knit_current_width(void) { return g_settings.border_width; }
 
+// Called by the menu after it turns an app on or off.
+void knit_apps_filter_changed(void) { windows_apply_app_filter(&g_windows); }
+
+// Owners of every window that could wear a sweater, for the Apps menu.
+int knit_window_owners(int* pids, int capacity) {
+  return windows_eligible_owners(pids, capacity);
+}
+
 extern void knit_menubar_start(void);
 extern void knit_menubar_prepare(void);
 extern void knit_application_prepare(void);
@@ -207,8 +231,8 @@ int main(int argc, char** argv) {
     send_args_to_server(server_port, argc, argv);
     return 0;
   } else if (server_port) {
-    error("A borders instance is already running and no valid arguments"
-          " where provided. To modify properties of the running instance"
+    error("A Window Sweaters instance is already running and no valid arguments"
+          " were provided. To modify properties of the running instance"
           " provide them as arguments.\n");
   }
 

@@ -71,6 +71,11 @@ uint32_t knit_color_for_window(uint32_t wid);
 // Stable fallback for an app without a curated colourway.
 uint32_t knit_color_for_app(const char* app);
 
+/// The shared Zigzag's contrast yarn for a main yarn: the collection's cream,
+/// or, on a pale yarn (HSL lightness >= 0.62), a deeper shade of that yarn.
+#define KNIT_CREAM 0xfff6f0deu
+uint32_t knit_zigzag_contrast(uint32_t base);
+
 /// Draw a knitted band in the ring between `win` (the window rect, in border
 /// window coordinates) and that rect grown by `band`.
 ///

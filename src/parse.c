@@ -56,7 +56,7 @@ static bool parse_color(struct color_style* style, char* token) {
     style->gradient.direction = TR_TO_BL;
     return true;
   }
-  else printf("[?] Borders: Invalid color argument color%s\n", token);
+  else printf("[?] Window Sweaters: Invalid color argument color%s\n", token);
 
   return false;
 }
@@ -138,7 +138,7 @@ uint32_t parse_settings(struct settings* settings, int count, char** arguments) 
         knit_flush_cache();
         update_mask |= BORDER_UPDATE_MASK_ALL;
       } else {
-        printf("[?] Borders: Unknown pattern '%s'\n", n);
+        printf("[?] Window Sweaters: Unknown pattern '%s'\n", n);
       }
     }
     else if (strcmp(arguments[i], "apps=reload") == 0) {
@@ -210,7 +210,7 @@ uint32_t parse_settings(struct settings* settings, int count, char** arguments) 
     }
     else if (strncmp(arguments[i], "--", 2) == 0) { /* our own flags */ }
     else {
-      printf("[?] Borders: Invalid argument '%s'\n", arguments[i]);
+      printf("[?] Window Sweaters: Invalid argument '%s'\n", arguments[i]);
     }
   }
   return update_mask;

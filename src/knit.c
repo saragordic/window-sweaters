@@ -79,6 +79,27 @@ uint32_t knit_color_for_window(uint32_t wid) {
   return b->colors[knit_mix(wid) % b->len];
 }
 
+// Cream shows on every yarn but a pale one; there, a deeper shade of the
+// yarn's own hue keeps the zigzag visible (Notion, Chrome's cream, Notes).
+uint32_t knit_zigzag_contrast(uint32_t base) {
+  double r = ((base >> 16) & 255) / 255.0, g = ((base >> 8) & 255) / 255.0, b = (base & 255) / 255.0;
+  double mx = fmax(r, fmax(g, b)), mn = fmin(r, fmin(g, b)), l = (mx + mn) / 2, h = 0, s = 0;
+  if (l < 0.62) return KNIT_CREAM;
+  if (mx != mn) {
+    double d = mx - mn;
+    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    h = mx == r ? (g - b) / d + (g < b ? 6 : 0) : mx == g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h /= 6;
+  }
+  l -= 0.26;
+  double q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q, t[3] = {h + 1.0/3, h, h - 1.0/3}, o[3];
+  for (int i = 0; i < 3; i++) {
+    double c = t[i]; if (c < 0) c += 1; if (c > 1) c -= 1;
+    o[i] = c < 1.0/6 ? p + (q - p) * 6 * c : c < 0.5 ? q : c < 2.0/3 ? p + (q - p) * (2.0/3 - c) * 6 : p;
+  }
+  return 0xff000000u | ((uint32_t)(o[0] * 255) << 16) | ((uint32_t)(o[1] * 255) << 8) | (uint32_t)(o[2] * 255);
+}
+
 uint32_t knit_color_for_app(const char* app) {
   // Stable across windows and launches, with no icon decoding or server query.
   // ASCII case folding matches the collection's usual process-name matching.

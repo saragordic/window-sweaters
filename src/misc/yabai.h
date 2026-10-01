@@ -137,6 +137,7 @@ static inline void yabai_proxy_begin(struct table* windows, uint32_t wid, uint32
       border->proxy->frame = border->frame;
       border->proxy->focused = border->focused;
       border->proxy->target_wid = border->target_wid;
+      border->proxy->owner_pid = border->owner_pid;
       snprintf(border->proxy->app, sizeof border->proxy->app, "%s", border->app);
       border->proxy->sid = border->sid;
       border->proxy->radius = border->radius;

@@ -97,6 +97,7 @@ struct border {
   uint64_t sid;
   uint32_t wid;
   uint32_t target_wid;
+  pid_t owner_pid;       // authoritative owner for icon lookup
   char app[64];          // owning app's process name, for per-app colourways
 
   float radius;

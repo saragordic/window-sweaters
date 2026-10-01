@@ -50,3 +50,49 @@ Confirm with `vtool -show-build` that both slices report the intended `minos`.
 Distribution signing and notarization are not configured by the local build.
 Publish source with the license and attribution; do not upload local logs,
 archives, personal settings, build products or developer signing credentials.
+
+## Automatic colourways
+
+`src/autoyarn.m` handles apps without built-in or personal rules. The window
+owner PID selects the icon; decoding and colour extraction run on a serial
+worker. Cache updates, chart generation and redraw callbacks run on the main
+thread. Never capture a border pointer in an icon job: its window may close
+before the job completes.
+
+`tests/autoyarn.m` supplies synthetic icons to the same decoder and cache. It
+checks contrast after softening, transparency, asynchronous completion, rule
+precedence, mode changes, reloads, relaunches and cache/table limits without
+requiring running apps. The native menu test checks generated-chart filtering.
+
+Automatic sweaters use two yarns. Pattern shape is a stable hash of the app
+name, independent of icon colour. Colourless icons retain the existing name-
+based fallback. The cache holds 64 recent processes; a full chart table can
+retain the icon colour without a motif until chart space is available.
+
+The shared Zigzag uses icon colours for every app, the built-in collection
+included, with `knit_zigzag_contrast()` choosing cream or a deeper shade.
+Personal `apps.conf` colours always win, a user's own `zigzag.png` is never
+recoloured, and a pale app without room for its own chart knits plain rather
+than cream on cream. Owners turned away while every cache slot is decoding are
+remembered and asked again, each once, as requests settle; never a redraw of
+every window, which with more apps than slots would evict and re-request
+forever. Icon sampling ignores faintly tinted greys (colour strength
+`max − min` below 0.10) and needs about 1.7% of the icon in colour, so
+black-and-white logos keep their fallback and small accents still count; this
+applies in every mode. `make styles` regenerates the README comparison image;
+its Zigzag colours are fixed in `tests/render.c` so it is the same on any Mac.
+
+## Choosing apps in the menu
+
+`app_allowed()` in `src/windows.c` is the only place a border can be refused,
+and every path that creates one goes through it. `src/hidden.m` holds a default
+(all apps on, or all off) plus the apps ticked the other way, keyed by bundle
+identifier and resolved through `NSRunningApplication`, never from the
+executable path. This is kept apart from the startup script's
+`blacklist=`/`whitelist=`, so neither overwrites the other. A change calls
+`windows_apply_app_filter()`, which removes and adds only the affected windows
+rather than rebuilding every border, then settles focus again. The Apps menu
+lists Dock apps, any app owning a window that could wear a sweater (worn now
+or not), and any running app ticked the other way; that rule is
+`knit_menu_apps()` and is tested directly. `tests/app_filter.m` drives the
+real `windows.c` and `hidden.m` against a scripted WindowServer.
