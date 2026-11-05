@@ -5,6 +5,10 @@ Knitted borders, colours inspired by your favourite apps, and a cosier desktop.
 
 ![Four overlapping windows edged with knitted borders in green, blue and rust colourways](docs/hero.jpg)
 
+https://github.com/user-attachments/assets/1ee85981-8882-4cb5-8bc3-75d8462a1f1a
+
+[See Window Sweaters in action on X →](https://x.com/saragordic/status/2098916110787916219)
+
 ## Get it
 
 You can just send this repo to your coding agent and ask it to install Window Sweaters for you:
