@@ -1,4 +1,4 @@
-# Window Sweaters
+# Window Sweaters for macOS
 
 A little Mac app I made to give my windows sweaters. 🧶
 Knitted borders, colours inspired by your favourite apps, and a cosier desktop.
