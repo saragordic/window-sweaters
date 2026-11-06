@@ -65,13 +65,13 @@ static void test_adaptive(void) {
   assert(reconcile_step_interval(false) == .05);
   assert(reconcile_step_interval(false) == .1);
   assert(reconcile_step_interval(false) == .2);
-  assert(reconcile_step_interval(false) == .4);
-  assert(reconcile_step_interval(false) == .8);
-  assert(reconcile_step_interval(false) == .8);
+  assert(reconcile_step_interval(false) == .2);
+  assert(reconcile_step_interval(false) == .2);
+  assert(reconcile_step_interval(false) == .2);
   assert(reconcile_step_interval(true) == .05);
   assert(reconcile_step_interval(false) == .05);
   assert(reconcile_step_interval(false) == .1);
-  while (reconcile_step_interval(false) < .8) {}
+  while (reconcile_step_interval(false) < .2) {}
   reconcile_kick();
   assert(reconcile_step_interval(false) == .05 && !g_reconcile_kick);
   // Flag cleared: the next quiet steps decay. A sticky kick would stay at .05.
@@ -83,11 +83,12 @@ static void test_adaptive(void) {
   assert(reconcile_step_interval(true) == 1.0);
   g_screens_asleep = false;
   g_quiet_streak = 0; g_reconcile_kick = false; g_power_low = true;
-  // fmax floors every quiet step, including the first, so this is .2 .2 .2 .4 .8.
-  double low0 = reconcile_step_interval(false), low1 = reconcile_step_interval(false);
-  double low2 = reconcile_step_interval(false), low3 = reconcile_step_interval(false);
-  double low4 = reconcile_step_interval(false);
-  assert(low1 >= .2 && low0 == .2 && low1 == .2 && low2 == .2 && low3 == .4 && low4 == .8);
+  // fmax floors every quiet step, including the first: all .2 at this cap.
+  assert(reconcile_step_interval(false) == .2);
+  assert(reconcile_step_interval(false) == .2);
+  assert(reconcile_step_interval(false) == .2);
+  // Work still runs at full speed even in Low Power Mode.
+  assert(reconcile_step_interval(true) == .05);
   g_power_low = false; g_quiet_streak = 0; g_reconcile_kick = false;
   g_reconcile_interval = reconcile_step_interval(false);
   assert(g_reconcile_interval == .05 && reconcile_is_fast());
@@ -107,7 +108,7 @@ static void test_adaptive(void) {
   int checks_before = space_checks, repairs_before = space_repairs;
   bool quiet = windows_reconcile_snapshot(&g_windows, (__bridge CFArrayRef)@[s,o,rear]);
   assert(!quiet && space_checks == checks_before + 1 && space_repairs == repairs_before);
-  assert(reconcile_step_interval(quiet) == .8); // a no-op space check is not work
+  assert(reconcile_step_interval(quiet) == .2); // a no-op space check is not work
   bool repaired = windows_reconcile_snapshot(&g_windows, (__bridge CFArrayRef)@[s,rear,o]);
   assert(repaired);
   assert(reconcile_step_interval(repaired) == .05);
@@ -160,6 +161,11 @@ int main(void) {@autoreleasepool {
   NSMutableDictionary* transformed=[s mutableCopy];
   transformed[(__bridge NSString*)kCGWindowBounds]=CFBridgingRelease(CGRectCreateDictionaryRepresentation(CGRectMake(10,10,90,60)));
   observe(@[transformed,o,rear]);assert(target.native_transform&&!target.visible);
+  observe(@[s,o,rear]);assert(!target.native_transform&&target.visible);
+  // The genie's early phase scales one axis first; EITHER dimension must hide.
+  NSMutableDictionary* wide=[s mutableCopy];
+  wide[(__bridge NSString*)kCGWindowBounds]=CFBridgingRelease(CGRectCreateDictionaryRepresentation(CGRectMake(10,10,300,90)));
+  observe(@[wide,o,rear]);assert(target.native_transform&&!target.visible);
   observe(@[s,o,rear]);assert(!target.native_transform&&target.visible);
   // Ordering the same missing surface must eventually escalate to recreation.
   int old_resets=surface_resets;

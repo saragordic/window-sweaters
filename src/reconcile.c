@@ -16,7 +16,11 @@ __attribute__((weak)) bool knit_screens_asleep(void) { return false; }
 __attribute__((weak)) void knit_set_fast(bool fast) { (void)fast; }
 
 static const double reconcile_fast_interval = .05;
-static const double reconcile_slow_interval = .8;
+// The slow heartbeat must still fall inside a Dock minimize/unminimize
+// animation, which emits no window-server events at all: the snapshot is the
+// only signal those transitions ever produce, so this cap bounds how late
+// the ring can react to one.
+static const double reconcile_slow_interval = .2;
 static double g_reconcile_interval = .05;
 static int g_quiet_streak = 0;
 static bool g_reconcile_kick = false;
@@ -238,11 +242,13 @@ bool windows_reconcile_snapshot(struct table* windows, CFArrayRef snapshot) {
           }
         }
         // A separate ring cannot undergo the Dock's nonrectangular Genie
-        // transform. Hide it while both presentation dimensions are scaled;
-        // restore when the target returns to its normal rectangular frame.
+        // transform. Hide it as soon as EITHER presentation dimension is
+        // scaled: the genie shrinks one axis first, and waiting for both
+        // leaves the full-size ring floating over the animation. Restore
+        // only when both dimensions have settled back to within 1 pt.
         bool scaled = geometry.size.width > 0 && geometry.size.height > 0
-          && fabs(source->bounds.size.width / geometry.size.width - 1) > .08
-          && fabs(source->bounds.size.height / geometry.size.height - 1) > .08;
+          && (fabs(source->bounds.size.width / geometry.size.width - 1) > .08
+              || fabs(source->bounds.size.height / geometry.size.height - 1) > .08);
         bool settled = fabs(source->bounds.size.width - geometry.size.width) <= 1
           && fabs(source->bounds.size.height - geometry.size.height) <= 1;
         border->native_transform = scaled || (border->native_transform && !settled);
