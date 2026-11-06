@@ -644,6 +644,37 @@ static void verify(void) {
   puts("PASS: 1×/2× transparency, opaque wool, unpatched resize phase, colourwork independent of plain style, cache eviction");
 }
 
+// Paper's chart inserts one tile per colour. A cuff or solid corner would
+// also cache a patch, and the 64-entry fill below would no longer be 1:1.
+static void verify_lru_tile_cache(void) {
+  const struct app_rule* rule = knit_app_rule("Paper");
+  assert(rule);
+  int chart = knit_chart_index(rule->chart);
+  assert(chart >= 0);
+  assert(!g_charts[chart].solid_corners && !g_charts[chart].cuff_color);
+  const float band = 14.f;
+  uint32_t color[64];
+  for (int i = 0; i < 64; i++) color[i] = 0xff000001u + (uint32_t)i;
+
+  knit_flush_cache();
+  CGContextRef c = canvas(320, 200, 2);
+  CGRect win = CGRectMake(30, 30, 240, 130);
+  for (int i = 0; i < 64; i++) {
+    knit_draw(c, win, 10, band, color[i], chart, 0, 1);
+    assert(knit_tile_identity(band, color[i], chart));
+  }
+  knit_draw(c, win, 10, band, color[0], chart, 0, 1); // hit: refresh to MRU
+  const void* kept = knit_tile_identity(band, color[0], chart);
+  assert(kept);
+  uint32_t extra = 0xff010000u;
+  knit_draw(c, win, 10, band, extra, chart, 0, 1); // evicts the LRU head
+  assert(knit_tile_identity(band, color[0], chart) == kept);
+  assert(knit_tile_identity(band, color[1], chart) == NULL);
+  CGContextRelease(c);
+  knit_flush_cache();
+  puts("PASS: LRU tile cache evicts least-recently-used, touch refreshes recency");
+}
+
 static void benchmark(const char* app) {
   mach_timebase_info_data_t tb; mach_timebase_info(&tb);
   const int sizes[][2]={{600,400},{1400,900},{2560,1440}};
@@ -682,7 +713,7 @@ int main(int argc,char** argv) {
   else if(argc>2 && !strcmp(argv[1],"--patterns")) patterns_preview(argv[2]);
   else if(argc>2 && !strcmp(argv[1],"--styles")) styles_comparison(argv[2]);
   else if(argc>1) preview(argv[1]);
-  else verify();
+  else { verify(); verify_lru_tile_cache(); }
   knit_flush_cache();
   return 0;
 }

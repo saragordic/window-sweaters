@@ -484,6 +484,13 @@ static struct knit_tile knit_get_tile(float band, uint32_t color, int chart) {
     if (g_cache[i].band == band && g_cache[i].color == color
         && g_cache[i].chart == chart) {
       struct knit_tile t = g_cache[i];
+      if (i != g_cache_n - 1) {
+        // Touch: the tail is most recently used, so eviction below drops the
+        // least recently used entry, not the longest-lived one.
+        memmove(g_cache + i, g_cache + i + 1,
+                sizeof(struct knit_tile) * (g_cache_n - 1 - i));
+        g_cache[g_cache_n - 1] = t;
+      }
       CGImageRetain(t.img); // caller owns its image across cache flush/eviction
       pthread_mutex_unlock(&g_cache_lock);
       return t;
@@ -500,6 +507,21 @@ static struct knit_tile knit_get_tile(float band, uint32_t color, int chart) {
   CGImageRetain(t.img);
   pthread_mutex_unlock(&g_cache_lock);
   return t;
+}
+
+const void* knit_tile_identity(float band, uint32_t color, int chart) {
+  band = roundf(band * 2.f) / 2.f;
+  pthread_mutex_lock(&g_cache_lock);
+  const void* identity = NULL;
+  for (int i = 0; i < g_cache_n; i++) {
+    if (g_cache[i].band == band && g_cache[i].color == color
+        && g_cache[i].chart == chart) {
+      identity = g_cache[i].img;
+      break;
+    }
+  }
+  pthread_mutex_unlock(&g_cache_lock);
+  return identity;
 }
 
 void knit_draw(CGContextRef ctx, CGRect win, float radius, float band,

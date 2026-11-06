@@ -92,3 +92,8 @@ extern float g_knit_dim;
 
 /// Discard every cached tile. Call after changing the gauge, stitch or basket.
 void knit_flush_cache(void);
+
+/// Test introspection for the tile cache: a stable identity (the cached
+/// CGImage pointer) for this key, or NULL on a miss. Reading does not refresh
+/// recency. The pointer is not retained; do not release it.
+const void* knit_tile_identity(float band, uint32_t color, int chart);
