@@ -14,6 +14,7 @@
 
 extern void knit_apply(const char* arg);   // main.c: feeds one "key=value"
 extern void knit_apps_filter_changed(void); // main.c: re-run the app gate
+extern void reconcile_kick(void);           // reconcile.c: next pass at fast cadence
 extern bool g_knit_on;
 
 enum { KNIT_MENU_HEADER_TAG = 0x6864 };   // a label, not a command
@@ -237,11 +238,33 @@ static void knit_load_prefs(void) {
   }
 }
 
+// The App Nap assertion is held only while reconciliation is at fast cadence:
+// the machine stays responsive while windows are moving and is allowed to
+// nap and timer-coalesce once the desktop is quiet.
+static id g_activity = nil;
+void knit_set_fast(bool fast) {
+  static bool current = false;
+  if (fast == current) return;
+  current = fast;
+  if (fast) {
+    if (!g_activity)
+      g_activity = [NSProcessInfo.processInfo
+        beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep
+                          reason:@"Keep window sweaters synchronized"];
+  } else if (g_activity) {
+    [NSProcessInfo.processInfo endActivity:g_activity];
+    g_activity = nil;
+  }
+}
+
+bool knit_power_low(void) { return NSProcessInfo.processInfo.lowPowerModeEnabled; }
+
+static BOOL g_screens_asleep = false;
+bool knit_screens_asleep(void) { return g_screens_asleep; }
 
 @interface KnitMenu : NSObject <NSMenuDelegate>
 @property(strong) NSStatusItem* item;
 @property(strong) NSMutableDictionary<NSString*, NSImage*>* swatches;
-@property(strong) id activity;
 @end
 
 @implementation KnitMenu
@@ -276,17 +299,6 @@ static void knit_load_prefs(void) {
 }
 
 - (void)updateStatus {
-  // These transparent SkyLight windows are not ordinary AppKit content.
-  // Tell macOS that enabled sweaters are ongoing user-visible work, while
-  // still allowing the display and computer to sleep normally.
-  if (g_knit_on && !self.activity) {
-    self.activity = [NSProcessInfo.processInfo
-      beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep
-      reason:@"Keep window sweaters synchronized"];
-  } else if (!g_knit_on && self.activity) {
-    [NSProcessInfo.processInfo endActivity:self.activity];
-    self.activity = nil;
-  }
   // "Every app off" looks the same on screen as paused, so say which it is,
   // in the tooltip and to VoiceOver, never by dimming alone.
   bool noApps = !knit_apps_on_by_default() && knit_app_exception_count() == 0;
@@ -638,6 +650,19 @@ static KnitMenu* g_menu = nil;
   // Show at a glance whether sweaters are on. Without this the icon looks
   // identical either way, so "switched off" is indistinguishable from "broken".
   [g_menu updateStatus];
+
+  // AppKit has no screens-will-sleep notification. DidSleep is the moment
+  // the displays are actually dark, which is what the 1 s heartbeat is for.
+  NSNotificationCenter* center = NSWorkspace.sharedWorkspace.notificationCenter;
+  [center addObserverForName:NSWorkspaceScreensDidSleepNotification
+                      object:nil queue:[NSOperationQueue mainQueue]
+                  usingBlock:^(NSNotification* note) { g_screens_asleep = YES; }];
+  [center addObserverForName:NSWorkspaceScreensDidWakeNotification
+                      object:nil queue:[NSOperationQueue mainQueue]
+                  usingBlock:^(NSNotification* note) {
+    g_screens_asleep = NO;
+    reconcile_kick();
+  }];
 }
 @end
 
