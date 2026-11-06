@@ -120,7 +120,9 @@ struct border {
   struct settings setting_override;
 };
 
-void border_refresh_space(struct border* border);
+// True only when it moved the overlay or re-read its Space; a no-op
+// 200 ms liveness check is not work, and must not hold the loop at fast cadence.
+bool border_refresh_space(struct border* border);
 void border_reset_surface(struct border* border);
 
 struct border* border_create();

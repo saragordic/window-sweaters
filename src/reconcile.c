@@ -183,8 +183,7 @@ bool windows_reconcile_snapshot(struct table* windows, CFArrayRef snapshot) {
       border->missing_snapshots = 0;
       if (now >= border->space_check_after) {
         border->space_check_after = now + .20;
-        border_refresh_space(border);
-        worked = true;
+        if (border_refresh_space(border)) worked = true;
       }
       // Use observed size here: an app may defer model bounds/notifications
       // while the user is inside its native mouse-tracking resize loop.

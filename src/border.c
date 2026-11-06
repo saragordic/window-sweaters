@@ -272,9 +272,12 @@ void border_create_window(struct border* border, CGRect frame, bool unmanaged, b
 // A display handoff need not emit a Space-change notification. Verify actual
 // membership as well as the cache so an incomplete transfer is retried.
 // Called by the bounded snapshot repair, never for every mouse-move event.
-void border_refresh_space(struct border* border) {
-  if (border->is_proxy || border->external_proxy_wid || border->sticky) return;
+// Returns true only when it actually moved the overlay or re-read its Space:
+// callers use that to tell real work from a no-op check.
+bool border_refresh_space(struct border* border) {
+  if (border->is_proxy || border->external_proxy_wid || border->sticky) return false;
   pthread_mutex_lock(&border->mutex);
+  bool changed = false;
   uint64_t sid = window_space_id(border->cid, border->target_wid);
   if (sid) {
     uint64_t overlay_sid = border->wid ? window_space_id(border->cid, border->wid) : sid;
@@ -284,9 +287,11 @@ void border_refresh_space(struct border* border) {
       border->metadata_dirty = true;
       border->geometry_valid = false;
       border->needs_redraw = true; // restore geometry/order after the transfer
+      changed = true;
     }
   }
   pthread_mutex_unlock(&border->mutex);
+  return changed;
 }
 
 void border_update_internal(struct border* border, struct settings* settings, const CGRect* observed_bounds) {

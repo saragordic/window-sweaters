@@ -23,11 +23,13 @@ static CFAbsoluteTime test_now = 1;
 static int space_checks, space_repairs;
 static uint64_t target_space = 1;
 CFAbsoluteTime mock_now(void) { return test_now; }
-void border_refresh_space(struct border* b) {
+bool border_refresh_space(struct border* b) {
   space_checks++;
   if (b->sid != target_space) {
     b->sid = target_space; b->metadata_dirty = true; space_repairs++;
+    return true;
   }
+  return false;
 }
 int mock_connection(void) { return 1; }
 CGError mock_bounds(int cid, uint32_t wid, CGRect* bounds) { *bounds=CGRectMake(10,10,300,200);return gone ? kCGErrorFailure : kCGErrorSuccess; }
@@ -96,13 +98,15 @@ static void test_adaptive(void) {
   table_init(&g_windows, 16, hash, equal);
   uint32_t wid = 3;
   target = (struct border){.target_wid=3,.wid=2,.sid=1,.visible=true,.geometry_valid=true,
-    .opacity=1,.target_bounds=CGRectMake(10,10,300,200),.space_check_after=test_now+10};
+    .opacity=1,.target_bounds=CGRectMake(10,10,300,200),.space_check_after=0};
   table_add(&g_windows, &wid, &target);
   NSDictionary* s=window(3,200,1), *o=window(2,100,1), *rear=window(4,201,1);
   g_quiet_streak = 4; g_reconcile_kick = false; g_power_low = false;
+  target_space = 1;                    // the border's Space is unchanged: a no-op check
+  int checks_before = space_checks, repairs_before = space_repairs;
   bool quiet = windows_reconcile_snapshot(&g_windows, (__bridge CFArrayRef)@[s,o,rear]);
-  assert(!quiet);
-  assert(reconcile_step_interval(quiet) == .8); // no-change pass keeps decaying
+  assert(!quiet && space_checks == checks_before + 1 && space_repairs == repairs_before);
+  assert(reconcile_step_interval(quiet) == .8); // a no-op space check is not work
   bool repaired = windows_reconcile_snapshot(&g_windows, (__bridge CFArrayRef)@[s,rear,o]);
   assert(repaired);
   assert(reconcile_step_interval(repaired) == .05);
