@@ -56,6 +56,59 @@ static NSDictionary* window(uint32_t wid,pid_t pid,double alpha) {
     (__bridge NSString*)kCGWindowBounds:CFBridgingRelease(CGRectCreateDictionaryRepresentation(CGRectMake(10,10,300,200)))};
 }
 static void observe(NSArray* a) { windows_reconcile_snapshot(&g_windows,(__bridge CFArrayRef)a); }
+static void test_adaptive(void) {
+  g_quiet_streak = 0; g_reconcile_interval = .05; g_reconcile_kick = false;
+  g_power_low = false; g_screens_asleep = false; g_knit_on = true;
+  assert(reconcile_step_interval(false) == .05);
+  assert(reconcile_step_interval(false) == .1);
+  assert(reconcile_step_interval(false) == .2);
+  assert(reconcile_step_interval(false) == .4);
+  assert(reconcile_step_interval(false) == .8);
+  assert(reconcile_step_interval(false) == .8);
+  assert(reconcile_step_interval(true) == .05);
+  assert(reconcile_step_interval(false) == .05);
+  assert(reconcile_step_interval(false) == .1);
+  while (reconcile_step_interval(false) < .8) {}
+  reconcile_kick();
+  assert(reconcile_step_interval(false) == .05 && !g_reconcile_kick);
+  // Flag cleared: the next quiet steps decay. A sticky kick would stay at .05.
+  assert(reconcile_step_interval(false) == .05);
+  assert(reconcile_step_interval(false) == .1);
+  g_screens_asleep = true;
+  reconcile_kick();
+  assert(reconcile_step_interval(false) == 1.0);
+  assert(reconcile_step_interval(true) == 1.0);
+  g_screens_asleep = false;
+  g_quiet_streak = 0; g_reconcile_kick = false; g_power_low = true;
+  // fmax floors every quiet step, including the first, so this is .2 .2 .2 .4 .8.
+  double low0 = reconcile_step_interval(false), low1 = reconcile_step_interval(false);
+  double low2 = reconcile_step_interval(false), low3 = reconcile_step_interval(false);
+  double low4 = reconcile_step_interval(false);
+  assert(low1 >= .2 && low0 == .2 && low1 == .2 && low2 == .2 && low3 == .4 && low4 == .8);
+  g_power_low = false; g_quiet_streak = 0; g_reconcile_kick = false;
+  g_reconcile_interval = reconcile_step_interval(false);
+  assert(g_reconcile_interval == .05 && reconcile_is_fast());
+  reconcile_step_interval(false);
+  g_reconcile_interval = reconcile_step_interval(false);
+  assert(g_reconcile_interval == .2 && !reconcile_is_fast());
+  gone = false; settings.border_order = BORDER_ORDER_BELOW;
+  live_ids = NULL; live_count = 0; live_ids_expiry = 0;
+  table_init(&g_windows, 16, hash, equal);
+  uint32_t wid = 3;
+  target = (struct border){.target_wid=3,.wid=2,.sid=1,.visible=true,.geometry_valid=true,
+    .opacity=1,.target_bounds=CGRectMake(10,10,300,200),.space_check_after=test_now+10};
+  table_add(&g_windows, &wid, &target);
+  NSDictionary* s=window(3,200,1), *o=window(2,100,1), *rear=window(4,201,1);
+  g_quiet_streak = 4; g_reconcile_kick = false; g_power_low = false;
+  bool quiet = windows_reconcile_snapshot(&g_windows, (__bridge CFArrayRef)@[s,o,rear]);
+  assert(!quiet);
+  assert(reconcile_step_interval(quiet) == .8); // no-change pass keeps decaying
+  bool repaired = windows_reconcile_snapshot(&g_windows, (__bridge CFArrayRef)@[s,rear,o]);
+  assert(repaired);
+  assert(reconcile_step_interval(repaired) == .05);
+  table_free(&g_windows); free(previous_snapshot); previous_snapshot=NULL; previous_count=0;
+  puts("PASS: adaptive reconcile interval decay, kick, work reset, sleep and low-power");
+}
 static CFArrayRef mock_snapshot(CGWindowListOption options, CGWindowID wid) {
   return CFRetain((__bridge CFArrayRef)(gone ? @[] : @[window(3,200,1)]));
 }
@@ -118,4 +171,5 @@ int main(void) {@autoreleasepool {
   observe(@[window(7,202,1),window(8,100,1)]); assert(creates==2);
   table_free(&g_windows);free(previous_snapshot);previous_snapshot=NULL;previous_count=0;free(live_ids);
   puts("PASS: missing create/hide/show/destroy, transparent source, geometry, above/below depth, failed snapshot");
+  test_adaptive();
 }return 0;}

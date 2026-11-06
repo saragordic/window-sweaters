@@ -85,6 +85,7 @@ struct border {
   CFAbsoluteTime resize_settle_after;
   double opacity;
   unsigned missing_snapshots;
+  unsigned quiet_audit_count;  // quiet snapshots since the last model-geometry query
   unsigned missing_overlay_snapshots;
   CFAbsoluteTime overlay_rebuild_after;
   CFAbsoluteTime space_check_after;

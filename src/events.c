@@ -1,10 +1,15 @@
 #include "events.h"
+#include "reconcile.h"
 #include "misc/extern.h"
 #include "windows.h"
 #include "border.h"
 #include "misc/window.h"
 #include <time.h>
 #include <stddef.h>
+
+// Weak so test targets that compile this file without reconcile.c still link;
+// src/reconcile.c provides the real implementation in the app build.
+__attribute__((weak)) void reconcile_kick(void) {}
 
 extern struct table g_windows;
 extern pid_t g_pid;
@@ -88,11 +93,13 @@ static void window_spawn_handler(uint32_t event, struct window_spawn_data* data,
   if (wid && event == EVENT_WINDOW_DESTROY && table_find(windows, &wid)) {
     windows_window_hide(windows, wid);
     schedule_order_check();
+    reconcile_kick();
     schedule_focus_check(0);
     return;
   }
   if (!wid || !sid || is_own_window(cid, wid)) return;
   schedule_order_check();
+  reconcile_kick();
 
   if (event == EVENT_WINDOW_CREATE) {
     if (table_find(windows, &wid)) return; // Already discovered by reconciliation.
@@ -126,33 +133,42 @@ static void window_modify_handler(uint32_t event, uint32_t* window_id, size_t le
   if (event == EVENT_WINDOW_MOVE) {
     debug("Window Move: %d\n", wid);
     windows_window_move(windows, wid);
+    reconcile_kick(); // only reached for a tracked window
   } else if (event == EVENT_WINDOW_RESIZE) {
     debug("Window Resize: %d\n", wid);
     windows_window_resize(windows, wid);
+    reconcile_kick();
   } else if (event == EVENT_WINDOW_REORDER) {
     debug("Window Reorder (and focus): %d\n", wid);
     windows_window_update(windows, wid);
     schedule_focus_check(10000);
     schedule_order_check();
+    reconcile_kick();
   } else if (event == EVENT_WINDOW_LEVEL) {
     debug("Window Level: %d\n", wid);
     windows_window_update(windows, wid);
     schedule_order_check();
+    reconcile_kick();
   } else if (event == EVENT_WINDOW_TITLE || event == EVENT_WINDOW_UPDATE) {
+    // Focus is fully event-driven. Kicking here would pin the loop fast
+    // under any busy app that retitles or posts updates.
     debug("Window Focus\n");
     schedule_focus_check(50000);
   } else if (event == EVENT_WINDOW_UNHIDE) {
     debug("Window Unhide: %d\n", wid);
     windows_window_unhide(windows, wid);
     schedule_order_check();
+    reconcile_kick();
   } else if (event == EVENT_WINDOW_HIDE) {
     debug("Window Hide: %d\n", wid);
     windows_window_hide(windows, wid);
     schedule_order_check();
+    reconcile_kick();
   } else if (event == EVENT_WINDOW_CLOSE) {
     debug("Window Close: %d\n", wid);
     windows_window_destroy(windows, wid, 0);
     schedule_order_check();
+    reconcile_kick();
   }
 }
 
@@ -160,9 +176,11 @@ static void front_app_handler() {
   debug("Window Focus\n");
   schedule_focus_check(50000);
   schedule_order_check();
+  reconcile_kick();
 }
 
 static void space_handler() {
+  reconcile_kick();
   // Not all native-fullscreen windows have yet updated their space id...
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_MSEC),
                  dispatch_get_main_queue(), ^{

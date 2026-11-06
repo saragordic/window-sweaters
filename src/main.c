@@ -144,6 +144,8 @@ static void message_handler(void* data, uint32_t len) {
   } else if (update_mask & BORDER_UPDATE_MASK_INACTIVE) {
     windows_update_inactive(&g_windows);
   }
+  // Style changes repaint everything. Stay at fast cadence through the churn.
+  reconcile_kick();
 }
 
 // Called by the menu bar: feed one "key=value" through the same path a
@@ -160,7 +162,10 @@ void knit_apply(const char* arg) {
 float knit_current_width(void) { return g_settings.border_width; }
 
 // Called by the menu after it turns an app on or off.
-void knit_apps_filter_changed(void) { windows_apply_app_filter(&g_windows); }
+void knit_apps_filter_changed(void) {
+  windows_apply_app_filter(&g_windows);
+  reconcile_kick(); // per-app toggles add and remove borders
+}
 
 // Owners of every window that could wear a sweater, for the Apps menu.
 int knit_window_owners(int* pids, int capacity) {
