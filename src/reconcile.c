@@ -202,7 +202,13 @@ bool windows_reconcile_snapshot(struct table* windows, CFArrayRef snapshot) {
         || !border->geometry_valid || border->needs_redraw || border->metadata_dirty
         || border->native_transform
         || !overlay || overlay->alpha <= 0
-        || !CGRectEqualToRect(source->bounds, border->target_bounds)
+        // Tolerant, like the settle checks: a scaled display can carry a
+        // persistent sub-pixel offset between presentation and model bounds,
+        // and an exact compare would disable the skip on it forever.
+        || fabs(source->bounds.origin.x - border->target_bounds.origin.x) > 1
+        || fabs(source->bounds.origin.y - border->target_bounds.origin.y) > 1
+        || fabs(source->bounds.size.width - border->target_bounds.size.width) > 1
+        || fabs(source->bounds.size.height - border->target_bounds.size.height) > 1
         || fabs(source->alpha - border->opacity) > .001;
       if (!needs_model && ++border->quiet_audit_count >= 16) {
         needs_model = true;    // periodic audit catches model/presentation drift
@@ -307,8 +313,15 @@ bool windows_reconcile_snapshot(struct table* windows, CFArrayRef snapshot) {
   return worked;
 }
 
+static CFRunLoopTimerRef reconcile_timer;
+
 void reconcile_kick(void) {
   g_reconcile_kick = true;
+  // A kick must not wait out the slow cadence: pull the next pass forward.
+  // The timer is null in tests and before windows_reconcile_start.
+  if (reconcile_timer && g_reconcile_interval > reconcile_fast_interval)
+    CFRunLoopTimerSetNextFireDate(reconcile_timer,
+                                  CFAbsoluteTimeGetCurrent() + reconcile_fast_interval);
 }
 
 bool reconcile_is_fast(void) {
@@ -349,8 +362,6 @@ static void reconcile_refresh_power(void) {
   g_power_low = knit_power_low();
   g_screens_asleep = knit_screens_asleep();
 }
-
-static CFRunLoopTimerRef reconcile_timer;
 
 void windows_reconcile_start(void) {
   if (reconcile_timer) return;

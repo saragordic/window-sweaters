@@ -32,7 +32,8 @@ bool border_refresh_space(struct border* b) {
   return false;
 }
 int mock_connection(void) { return 1; }
-CGError mock_bounds(int cid, uint32_t wid, CGRect* bounds) { *bounds=CGRectMake(10,10,300,200);return gone ? kCGErrorFailure : kCGErrorSuccess; }
+static int model_queries;
+CGError mock_bounds(int cid, uint32_t wid, CGRect* bounds) { model_queries++; *bounds=CGRectMake(10,10,300,200);return gone ? kCGErrorFailure : kCGErrorSuccess; }
 struct settings* border_get_settings(struct border* b) { return &settings; }
 void border_update_geometry(struct border* b) { geometry++; b->target_bounds=CGRectMake(10,10,300,200); }
 void border_update_geometry_from_snapshot(struct border* b,CGRect frame,double opacity) {
@@ -110,6 +111,19 @@ static void test_adaptive(void) {
   bool repaired = windows_reconcile_snapshot(&g_windows, (__bridge CFArrayRef)@[s,rear,o]);
   assert(repaired);
   assert(reconcile_step_interval(repaired) == .05);
+  // Sub-pixel presentation noise must not defeat the audit skip: a 0.25 pt
+  // offset does no model query, a 3 pt shift does. (Scaled displays carry
+  // just such offsets permanently.)
+  NSMutableDictionary* frac = [s mutableCopy];
+  frac[(__bridge NSString*)kCGWindowBounds]
+    = CFBridgingRelease(CGRectCreateDictionaryRepresentation(CGRectMake(10.25,10,300,200)));
+  int queries = model_queries;
+  quiet = windows_reconcile_snapshot(&g_windows, (__bridge CFArrayRef)@[frac,o,rear]);
+  assert(!quiet && model_queries == queries);
+  frac[(__bridge NSString*)kCGWindowBounds]
+    = CFBridgingRelease(CGRectCreateDictionaryRepresentation(CGRectMake(13,10,300,200)));
+  quiet = windows_reconcile_snapshot(&g_windows, (__bridge CFArrayRef)@[frac,o,rear]);
+  assert(!quiet && model_queries == queries + 1);
   table_free(&g_windows); free(previous_snapshot); previous_snapshot=NULL; previous_count=0;
   puts("PASS: adaptive reconcile interval decay, kick, work reset, sleep and low-power");
 }
