@@ -78,6 +78,7 @@ static inline void execute_config_file(const char* name, const char* filename) {
 }
 
 static inline  CFArrayRef cfarray_of_cfnumbers(void* values, size_t size, int count, CFNumberType type) {
+  if (count <= 0) return CFArrayCreate(NULL, NULL, 0, &kCFTypeArrayCallBacks);
   CFNumberRef temp[count];
 
   for (int i = 0; i < count; ++i) {

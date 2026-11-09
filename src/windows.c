@@ -406,6 +406,11 @@ void windows_draw_borders_on_current_spaces(struct table* windows) {
   CFArrayRef displays = SLSCopyManagedDisplays(cid);
   if (!displays) return;
   uint32_t space_count = CFArrayGetCount(displays);
+  if (space_count == 0) {
+    // A session with no managed displays has no current Space to draw on.
+    CFRelease(displays);
+    return;
+  }
   uint64_t space_list[space_count];
 
   for (int i = 0; i < space_count; i++) {
@@ -473,6 +478,7 @@ static int windows_copy_suitable(int cid, uint32_t** out) {
                                = CFArrayGetValueAtIndex(display_spaces_ref, i);
       CFArrayRef spaces_ref = CFDictionaryGetValue(display_ref,
                                                    CFSTR("Spaces"));
+      if (!spaces_ref) continue;   // a display without Spaces has nothing to list
       int spaces_count = CFArrayGetCount(spaces_ref);
 
       space_list = (uint64_t*)realloc(space_list,
@@ -489,6 +495,11 @@ static int windows_copy_suitable(int cid, uint32_t** out) {
       space_count += spaces_count;
     }
     CFRelease(display_spaces_ref);
+  }
+
+  if (space_count == 0) {
+    free(space_list);
+    return 0;    // no Spaces discovered: no window can be suitable
   }
 
   uint64_t set_tags = 1;
