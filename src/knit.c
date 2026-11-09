@@ -16,6 +16,7 @@ int g_knit_stitch = KNIT_STOCKINETTE;
 int g_knit_basket = 3;
 int g_knit_anchor = KNIT_ANCHOR_CORNER;
 float g_knit_dim = 0.f;   // unfocused windows look identical by default
+float g_knit_grey = 0.f;
 bool g_knit_on = true;
 int knit_tile_scale_override = 0;   // 0 = auto
 int knit_interp_override = -1;      // -1 = high
@@ -524,8 +525,46 @@ const void* knit_tile_identity(float band, uint32_t color, int chart) {
   return identity;
 }
 
+// Grey a tile in place of the one passed in. Greying the knit itself, before
+// it is tiled into the ring, keeps the ring's antialiased edge drawn once:
+// painting grey over the finished ring left coloured fringes on the curves.
+// Lightness is kept, so stitches still read; alpha is untouched.
+static void knit_grey_tile(struct knit_tile* t, float grey) {
+  if (!t->img || grey <= 0.001f) return;
+  size_t w = CGImageGetWidth(t->img), h = CGImageGetHeight(t->img);
+  // Same space the tiles are made in: a conversion would tint the grey.
+  CGColorSpaceRef rgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+  CGContextRef c = CGBitmapContextCreate(NULL, w, h, 8, w * 4, rgb,
+      kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host);
+  CGColorSpaceRelease(rgb);
+  if (!c) return;
+  CGContextDrawImage(c, CGRectMake(0, 0, w, h), t->img);
+  uint32_t* px = CGBitmapContextGetData(c);
+  for (size_t i = 0; i < w * h; i++) {
+    uint32_t p = px[i];
+    float r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255;
+    float l = .3f * r + .59f * g + .11f * b;   // premultiplied, so l <= alpha
+    r += (l - r) * grey; g += (l - g) * grey; b += (l - b) * grey;
+    px[i] = (p & 0xff000000u) | ((uint32_t)(r + .5f) << 16)
+          | ((uint32_t)(g + .5f) << 8) | (uint32_t)(b + .5f);
+  }
+  CGImageRef greyed = CGBitmapContextCreateImage(c);
+  CGContextRelease(c);
+  if (!greyed) return;
+  CGImageRelease(t->img);
+  t->img = greyed;
+}
+
 void knit_draw(CGContextRef ctx, CGRect win, float radius, float band,
                uint32_t color, int chart, float dim, float tuck) {
+  knit_draw_faded(ctx, win, radius, band, color, chart, dim, 0.f, tuck);
+}
+
+void knit_draw_faded(CGContextRef ctx, CGRect win, float radius, float band,
+                     uint32_t color, int chart, float dim, float grey, float tuck) {
+  // Greying is optional: a bad value means none, never a missing sweater.
+  if (!isfinite(grey) || grey < 0.f) grey = 0.f;
+  if (grey > 1.f) grey = 1.f;
   if (!ctx || !isfinite(band) || !isfinite(radius) || !isfinite(tuck)
       || !isfinite(win.origin.x) || !isfinite(win.origin.y)
       || !isfinite(win.size.width) || !isfinite(win.size.height)
@@ -572,6 +611,9 @@ void knit_draw(CGContextRef ctx, CGRect win, float radius, float band,
   }
   struct knit_tile patch = {0};
   if (solid_corners) patch = knit_get_tile(band, corner_color, KNIT_PATCH_CHART);
+  knit_grey_tile(&t, grey);
+  knit_grey_tile(&cuff_tile, grey);
+  knit_grey_tile(&patch, grey);
   CGContextSetAlpha(ctx, 1.f);   // the band is always fully opaque
   CGContextSetInterpolationQuality(ctx, knit_interp_override < 0
                                    ? kCGInterpolationHigh
@@ -641,6 +683,8 @@ void knit_draw(CGContextRef ctx, CGRect win, float radius, float band,
     // Its clip is one narrow side, never the full window backing store.
     float a, r, g, b;
     colors_from_hex(corner_color, &a, &r, &g, &b);
+    float l = .3f * r + .59f * g + .11f * b;   // greyed like the tiles
+    r += (l - r) * grey; g += (l - g) * grey; b += (l - b) * grey;
     CGContextSetRGBFillColor(ctx, r * 0.96f, g * 0.96f, b * 0.96f, 1.f);
     CGContextFillRect(ctx, CGRectMake(0.f, 0.f, L, d));
     if (patch.img) {

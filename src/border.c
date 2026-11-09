@@ -133,13 +133,14 @@ static void border_draw(struct border* border, CGRect frame, struct settings* se
       }
     }
 
-    knit_draw(border->context,
+    knit_draw_faded(border->context,
               border->drawing_bounds,
               border->radius,
               settings->border_width,
               yarn,
               chart,
               border->focused ? 0.f : g_knit_dim,
+              border->focused ? 0.f : g_knit_grey,
               // drawn above the window, a deep tuck would cover its content
               settings->border_order == BORDER_ORDER_ABOVE ? 1.f : g_knit.tuck);
     CGContextFlush(border->context);

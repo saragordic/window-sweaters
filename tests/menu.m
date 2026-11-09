@@ -73,6 +73,7 @@ static bool saved_on_by_default(void) {
 struct knit_gauge g_knit = {.rows = 6};
 int g_knit_stitch, g_knit_basket, g_knit_anchor;
 bool g_knit_on = true, g_knit_pattern_by_app = true;
+float g_knit_dim, g_knit_grey;
 const char* g_knit_stitch_names[] = {"stockinette", "rib", "garter"};
 static const uint32_t basket[] = {0xff123456, 0xffabcdef};
 const struct knit_basket g_knit_baskets[] = {
@@ -108,6 +109,9 @@ void knit_apply(const char* argument) {
   } else if (sscanf(argument, "gauge=%f", &g_knit.rows) == 1) {
   } else if (sscanf(argument, "width=%f", &current_width) == 1) {
   } else if (!strncmp(argument, "knit=", 5)) g_knit_on = !strcmp(argument + 5, "on");
+  else if (!strcmp(argument, "inactive=colour")) { g_knit_dim = 0; g_knit_grey = 0; }
+  else if (!strcmp(argument, "inactive=dim")) { g_knit_dim = KNIT_INACTIVE_DIM; g_knit_grey = 0; }
+  else if (!strcmp(argument, "inactive=grey")) { g_knit_dim = 0; g_knit_grey = 1; }
 }
 
 static int add_chart(const char* name, int height) {
@@ -282,7 +286,7 @@ int main(void) {
     menu.autoenablesItems = NO;
     [controller rebuild:menu];
     NSArray* expected = @[@"Show Sweater Borders", @"Apps", @"Pattern", @"Border Width", @"Stitch Size",
-                         @"", @"Quit Window Sweaters"];
+                         @"Inactive Windows", @"", @"Quit Window Sweaters"];
     assert(menu.numberOfItems == expected.count);
     for (NSInteger i = 0; i < menu.numberOfItems; i++)
       assert([[menu itemAtIndex:i].title isEqualToString:expected[i]]);
@@ -387,6 +391,34 @@ int main(void) {
     test_listing();
     test_apps(controller, menu);
     puts("PASS: per-app switches: listing rules, sorted, truthful, persisted, reversible, all on and all off");
+    // Inactive windows: one look ticked, the choice applies and is remembered,
+    // and nothing is saved until someone picks one.
+    KnitTestDefaults* defaults = [KnitTestDefaults standardUserDefaults];
+    assert(!defaults.values[@"inactive"]);
+    NSMenu* inactive = submenu(menu, @"Inactive Windows");
+    NSArray* looks = @[@"Full Colour", @"Dimmed", @"Grey"];
+    assert(inactive.numberOfItems == (NSInteger)looks.count);
+    for (NSInteger i = 0; i < inactive.numberOfItems; i++)
+      assert([[inactive itemAtIndex:i].title isEqualToString:looks[i]]);
+    assert(checked_count(inactive) == 1 && [inactive itemWithTitle:@"Full Colour"].state == NSControlStateValueOn);
+    NSMenuItem* greyItem = [inactive itemWithTitle:@"Grey"];
+    [controller apply:greyItem];
+    assert(g_knit_grey == 1 && g_knit_dim == 0);
+    assert([defaults.values[@"inactive"] isEqualToString:@"inactive=grey"]);
+    [controller rebuild:menu];
+    inactive = submenu(menu, @"Inactive Windows");
+    assert(checked_count(inactive) == 1 && [inactive itemWithTitle:@"Grey"].state == NSControlStateValueOn);
+    NSMenuItem* dimItem = [inactive itemWithTitle:@"Dimmed"];
+    [controller apply:dimItem];
+    assert(g_knit_grey == 0 && g_knit_dim == KNIT_INACTIVE_DIM);
+    g_knit_dim = 0; g_knit_grey = 0;
+    knit_load_prefs();                       // a restart brings the saved look back
+    assert(g_knit_dim == KNIT_INACTIVE_DIM && g_knit_grey == 0);
+    [controller apply:[inactive itemWithTitle:@"Full Colour"]];
+    assert(g_knit_dim == 0 && g_knit_grey == 0);
+    [defaults.values removeObjectForKey:@"inactive"];
+    [controller rebuild:menu];
+
     puts("PASS: native menu structure, truthful state, working selections, chart filtering, gauge limits, cached swatches");
   }
   return 0;

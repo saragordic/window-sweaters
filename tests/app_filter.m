@@ -123,7 +123,7 @@ struct table g_windows;
 struct settings g_settings;
 pid_t g_pid = 1;
 int g_knit_trace;
-float g_knit_dim;
+float g_knit_dim, g_knit_grey;
 CFArrayRef (*JBSLSWindowIteratorGetCornerRadii)(CFTypeRef);
 static int created, destroyed;
 

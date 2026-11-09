@@ -2,6 +2,8 @@
 #include <CoreText/CoreText.h>
 #include <mach/mach_time.h>
 #include <assert.h>
+#include <math.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include "misc/knit.h"
@@ -675,6 +677,37 @@ static void verify_lru_tile_cache(void) {
   puts("PASS: LRU tile cache evicts least-recently-used, touch refreshes recency");
 }
 
+// Inactive windows can be greyed: the wool loses its colour, keeps roughly
+// its lightness, stays opaque, and never spills outside the sweater.
+static void verify_inactive_grey(void) {
+  const char* charts[] = {"atelier-paper", "atelier-spotify"};
+  for (int c = 0; c < 2; c++) for (int s = 1; s <= 2; s++) {
+    int chart = knit_chart_index(charts[c]);
+    CGContextRef colour = canvas(360, 260, s), grey = canvas(360, 260, s), half = canvas(360, 260, s);
+    CGRect win = CGRectMake(40, 40, 280, 180);
+    knit_draw(colour, win, 10, 14, 0xffd0503a, chart, 0, 1);
+    knit_draw_faded(grey, win, 10, 14, 0xffd0503a, chart, 0, 1, 1);
+    knit_draw_faded(half, win, 10, 14, 0xffd0503a, chart, 0, .5f, 1);
+    assert(pixel(grey, 180*s, 130*s) == 0 && pixel(grey, 4*s, 4*s) == 0);
+    double lc = 0, lg = 0; int n = 0, coloured = 0;
+    for (int y = 28*s; y < 38*s; y++) for (int x = 60*s; x < 300*s; x++) {
+      uint32_t a = pixel(colour, x, y), g = pixel(grey, x, y), h = pixel(half, x, y);
+      assert((a >> 24) == 255 && (g >> 24) == 255 && (h >> 24) == 255);
+      int r = (g >> 16) & 255, gr = (g >> 8) & 255, b = g & 255;
+      assert(abs(r - gr) <= 2 && abs(gr - b) <= 2);              // no colour left
+      int ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255;
+      int hr = (h >> 16) & 255, hb = h & 255;
+      if (ar - ab > 40) { coloured++; assert(hr - hb < ar - ab && hr - hb > 0); } // half is in between
+      lc += .3*ar + .59*ag + .11*ab; lg += .3*r + .59*gr + .11*b; n++;
+    }
+    assert(coloured > n / 4);
+    assert(fabs(lc - lg) / n < 12);                              // lightness kept
+    CGContextRelease(colour); CGContextRelease(grey); CGContextRelease(half);
+  }
+  knit_flush_cache();
+  puts("PASS: greyed inactive sweaters lose colour, keep lightness, stay opaque and inside the ring at 1x/2x");
+}
+
 static void benchmark(const char* app) {
   mach_timebase_info_data_t tb; mach_timebase_info(&tb);
   const int sizes[][2]={{600,400},{1400,900},{2560,1440}};
@@ -713,7 +746,7 @@ int main(int argc,char** argv) {
   else if(argc>2 && !strcmp(argv[1],"--patterns")) patterns_preview(argv[2]);
   else if(argc>2 && !strcmp(argv[1],"--styles")) styles_comparison(argv[2]);
   else if(argc>1) preview(argv[1]);
-  else { verify(); verify_lru_tile_cache(); }
+  else { verify(); verify_lru_tile_cache(); verify_inactive_grey(); }
   knit_flush_cache();
   return 0;
 }

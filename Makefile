@@ -53,6 +53,13 @@ test: bin/render-test
 	bin/menu-test
 	clang -O1 -g -fobjc-arc -fsanitize=address,undefined -Isrc tests/autoyarn.m src/knit.c src/chart.c src/apps.c -framework Cocoa -framework ApplicationServices -o bin/autoyarn-test
 	bin/autoyarn-test
+	clang -std=c99 -O1 -g -fsanitize=address,undefined -Isrc tests/inactive_render.c src/parse.c src/hashtable.c src/knit.c src/chart.c src/apps.c -framework ApplicationServices -framework CoreText -o bin/inactive-render-test
+	bin/inactive-render-test
+	bin/inactive-render-test --nonfinite
+	clang -O1 -g -fobjc-arc -fsanitize=address,undefined -Isrc tests/inactive_prefs.m src/hidden.m src/hashtable.c -framework Cocoa -framework UniformTypeIdentifiers -o bin/inactive-prefs-test
+	bin/inactive-prefs-test
+	clang -O1 -g -fobjc-arc -fsanitize=address,undefined -Isrc tests/inactive_focus.m src/hashtable.c -framework AppKit -o bin/inactive-focus-test
+	bin/inactive-focus-test
 
 # Optional native integration probe: build only. Running it creates its own
 # temporary window; keep it out of unattended unit tests.
