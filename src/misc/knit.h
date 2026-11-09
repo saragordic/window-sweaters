@@ -66,6 +66,7 @@ extern const char* g_knit_stitch_names[];
 extern bool g_knit_on;              // master on/off, driven by the menu bar
 
 float knit_current_width(void);     // defined in main.c
+bool knit_current_inset(void);     // defined in main.c
 
 uint32_t knit_color_for_window(uint32_t wid);
 // Stable fallback for an app without a curated colourway.

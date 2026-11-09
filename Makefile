@@ -1,5 +1,5 @@
 CFILES = src/main.c src/parse.c src/mach.c src/hashtable.c src/events.c src/reconcile.c \
-         src/windows.c src/border.c src/animation.c src/knit.c src/chart.c src/apps.c
+         src/windows.c src/border.c src/room.c src/animation.c src/knit.c src/chart.c src/apps.c
 LIBS = -framework AppKit -framework Cocoa -framework CoreVideo -framework UniformTypeIdentifiers \
        -F/System/Library/PrivateFrameworks/ -framework SkyLight
 
@@ -60,6 +60,8 @@ test: bin/render-test
 	bin/inactive-prefs-test
 	clang -O1 -g -fobjc-arc -fsanitize=address,undefined -Isrc tests/inactive_focus.m src/hashtable.c -framework AppKit -o bin/inactive-focus-test
 	bin/inactive-focus-test
+	clang -std=c99 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -Isrc tests/room.c -framework CoreGraphics -o bin/room-test
+	bin/room-test
 
 # Optional native integration probe: build only. Running it creates its own
 # temporary window; keep it out of unattended unit tests.

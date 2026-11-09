@@ -31,6 +31,9 @@ static CGError timed_commit(CFTypeRef, int);
 #define SLSFlushWindowContentRegion timed_flush
 #define SLSTransactionCommit timed_commit
 #include "../src/border.c"
+// The "Inside Window" room keeper resizes foreign windows; not under test here.
+void room_observe(uint32_t wid, pid_t pid, CGRect frame) {}
+void room_forget(uint32_t wid) {}
 #undef SLSGetWindowBounds
 #undef SLSSetWindowShape
 #undef SLWindowContextCreate
@@ -42,6 +45,7 @@ struct settings g_settings = {.enabled = true, .border_width = 10,
     .border_style = BORDER_STYLE_KNIT, .border_order = BORDER_ORDER_BELOW, .hidpi = true};
 mach_port_t g_server_port = MACH_PORT_NULL; // Metadata is supplied for our own window.
 float knit_current_width(void) { return g_settings.border_width; }
+bool knit_current_inset(void) { return g_settings.inset; }
 
 enum metric { NATIVE_FRAME, BORDER_UPDATE, BOUNDS, SHAPE, CONTEXT, DRAW, FLUSH, COMMIT,
               QUERY, NOTIFY_DELAY, QUEUE_DELAY, METRIC_COUNT };

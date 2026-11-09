@@ -35,6 +35,9 @@ static void mock_send_space(int cid, uint32_t wid, uint64_t sid);
 #define window_sub_level mock_window_sub_level
 #define is_space_visible mock_space_visible
 #include "../src/border.c"
+// The "Inside Window" room keeper resizes foreign windows; not under test here.
+void room_observe(uint32_t wid, pid_t pid, CGRect frame) {}
+void room_forget(uint32_t wid) {}
 
 struct settings g_settings = {.border_width = 10, .border_style = BORDER_STYLE_KNIT,
                               .border_order = BORDER_ORDER_BELOW};

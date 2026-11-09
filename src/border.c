@@ -1,4 +1,5 @@
 #include "border.h"
+#include "room.h"
 #include "misc/autoyarn.h"
 // A weak default so the test targets, which compile this file without the
 // ObjC module, still link. src/autoyarn.m provides the real implementation
@@ -81,6 +82,7 @@ static bool border_calculate_bounds(struct border* border, CGRect* frame, struct
   }
 
   border->target_bounds = window_frame;
+  if (!border->is_proxy) room_observe(border->target_wid, border->owner_pid, window_frame);
   border->too_small = border_check_too_small(border, window_frame);
   if (border->too_small) {
     border_hide(border);
@@ -534,6 +536,7 @@ static void border_apply_geometry(struct border* border, CGRect window_frame) {
     CFRelease(transaction);
     border->target_bounds = window_frame;
     border->origin = origin;
+    if (!border->is_proxy) room_observe(border->target_wid, border->owner_pid, window_frame);
   }
   pthread_mutex_unlock(&border->mutex);
 }

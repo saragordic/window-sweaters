@@ -6,6 +6,7 @@
 extern int g_knit_trace;
 #include "hashtable.h"
 #include "border.h"
+#include "room.h"
 #include "misc/ax.h"
 #include <string.h>
 #include <libproc.h>
@@ -353,6 +354,7 @@ bool windows_window_destroy(struct table* windows, uint32_t wid, uint64_t sid) {
   struct border* border = table_find(windows, &wid);
   if (border && (border->sid == sid || border->sticky || sid == 0)) {
     table_remove(windows, &wid);
+    if (!border->is_proxy) room_forget(wid);
     border_destroy(border);
     windows_update_notifications(windows);
     return true;

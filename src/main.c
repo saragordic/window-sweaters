@@ -1,4 +1,5 @@
 #include "border.h"
+#include "room.h"
 #include "misc/autoyarn.h"
 #include "hashtable.h"
 #include "events.h"
@@ -135,6 +136,9 @@ static void message_handler(void* data, uint32_t len) {
     }
   }
 
+  // Leaving Inside Window (or switching sweaters off) gives windows their space back.
+  room_settings_changed();
+
   if (update_mask & BORDER_UPDATE_MASK_RECREATE_ALL) {
     windows_recreate_all_borders(&g_windows);
   } else if (update_mask & BORDER_UPDATE_MASK_ALL) {
@@ -158,6 +162,7 @@ void knit_apply(const char* arg) {
 }
 
 float knit_current_width(void) { return g_settings.border_width; }
+bool knit_current_inset(void) { return g_settings.inset; }
 
 // Called by the menu after it turns an app on or off.
 void knit_apps_filter_changed(void) { windows_apply_app_filter(&g_windows); }

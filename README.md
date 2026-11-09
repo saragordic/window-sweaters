@@ -32,6 +32,8 @@ If macOS blocks it, open **System Settings → Privacy & Security → Open Anywa
 
 Click the yarn icon in your menu bar to change the style, pattern, border width, and stitch size. You can also pause the sweaters or quit from there.
 
+Sweaters sit around the window by default. If they bump into the menu bar or the window next door, open **Placement** and choose **Inside Window**: each window shrinks a little to make room, so window and sweater together fit the space the window had. Nothing in the window is covered, and when you drag an edge, the sweater's outer edge lands where you let go. Switching back, or quitting from the menu, gives every window its space back. From the command line, use `placement=inside` or `placement=outside`.
+
 To leave an app bare, open **Apps** and untick it. Its windows lose their sweater straight away, everything else stays as it is, and it stays off until you tick it again, even after a restart. Only want sweaters on a few apps? Choose **Turn Off for All Apps**, then tick the ones you like. Apps you open later start off too.
 
 **By App** gives each app its own sweater. **Zigzag** gives them all a softer, matching cream zigzag in colours taken from their icons. Try both and see what you like.

@@ -22,7 +22,10 @@ iconutil -c icns "$STAGE/AppIcon.iconset" -o "$STAGED/Resources/AppIcon.icns"
 chmod +x "$STAGED/MacOS/WindowSweaters"
 
 xattr -cr "$STAGE/Window Sweaters.app"
-codesign --force --deep --sign - "$STAGE/Window Sweaters.app"
+# Ad-hoc by default. Set SIGN_IDENTITY to a local certificate (see
+# `security find-identity -p codesigning`) so Accessibility permission
+# survives rebuilds: ad-hoc signatures change with every build.
+codesign --force --deep --sign "${SIGN_IDENTITY:--}" "$STAGE/Window Sweaters.app"
 codesign --verify --deep --strict "$STAGE/Window Sweaters.app"
 
 mkdir -p "$ROOT/outputs"

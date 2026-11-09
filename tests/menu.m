@@ -88,6 +88,9 @@ static int reload_height;
 static uint32_t chart_pixels[KNIT_CHART_MAX][256];
 
 float knit_current_width(void) { return current_width; }
+void room_release_all_and_wait(void) {}
+static bool current_inset;
+bool knit_current_inset(void) { return current_inset; }
 int knit_chart_index(const char* name) {
   for (int i = 0; i < g_chart_count; i++) if (!strcmp(name, g_charts[i].name)) return i;
   return -1;
@@ -108,6 +111,8 @@ void knit_apply(const char* argument) {
       if (!strcmp(argument + 5, g_knit_stitch_names[i])) g_knit_stitch = i;
   } else if (sscanf(argument, "gauge=%f", &g_knit.rows) == 1) {
   } else if (sscanf(argument, "width=%f", &current_width) == 1) {
+  } else if (!strncmp(argument, "placement=", 10)) {
+    current_inset = !strcmp(argument + 10, "inside");
   } else if (!strncmp(argument, "knit=", 5)) g_knit_on = !strcmp(argument + 5, "on");
   else if (!strcmp(argument, "inactive=colour")) { g_knit_dim = 0; g_knit_grey = 0; }
   else if (!strcmp(argument, "inactive=dim")) { g_knit_dim = KNIT_INACTIVE_DIM; g_knit_grey = 0; }
@@ -285,7 +290,7 @@ int main(void) {
     NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Test"];
     menu.autoenablesItems = NO;
     [controller rebuild:menu];
-    NSArray* expected = @[@"Show Sweater Borders", @"Apps", @"Pattern", @"Border Width", @"Stitch Size",
+    NSArray* expected = @[@"Show Sweater Borders", @"Apps", @"Pattern", @"Border Width", @"Placement", @"Stitch Size",
                          @"Inactive Windows", @"", @"Quit Window Sweaters"];
     assert(menu.numberOfItems == expected.count);
     for (NSInteger i = 0; i < menu.numberOfItems; i++)

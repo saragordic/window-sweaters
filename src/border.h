@@ -52,6 +52,9 @@ struct settings {
   bool hidpi;
   bool show_background;
   int border_order;
+  // Shrink each window by the band so window and sweater together fill the
+  // window's original frame: nothing is covered and nothing spills past it.
+  bool inset;
   bool ax_focus;
 
   bool blacklist_enabled;
