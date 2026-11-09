@@ -85,10 +85,21 @@ uint32_t knit_zigzag_contrast(uint32_t base);
 void knit_draw(CGContextRef ctx, CGRect win, float radius, float band,
                uint32_t color, int chart, float dim, float tuck);
 
+/// knit_draw with greying as well: grey 0..1 drains the yarn's colour while
+/// keeping its lightness, so stitches still read. Like dim, it stays opaque.
+void knit_draw_faded(CGContextRef ctx, CGRect win, float radius, float band,
+                     uint32_t color, int chart, float dim, float grey, float tuck);
+
 /// How much an unfocused window's band is darkened, 0..1. This darkens rather
 /// than fading: the band stays fully opaque at any value, so the desktop never
 /// shows through it. 0 makes every window identical.
 extern float g_knit_dim;
+
+/// How much an unfocused window's band is greyed, 0..1. 1 is fully grey.
+extern float g_knit_grey;
+
+/// The menu's "Dimmed" look for windows in the background.
+#define KNIT_INACTIVE_DIM 0.35f
 
 /// Discard every cached tile. Call after changing the gauge, stitch or basket.
 void knit_flush_cache(void);

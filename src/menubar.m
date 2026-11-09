@@ -223,6 +223,14 @@ static void knit_load_prefs(void) {
   knit_apply([d integerForKey:@"anchor"] == KNIT_ANCHOR_CENTRE
              ? "anchor=centre" : "anchor=corner");
 
+  // Saved only once someone picks a look. A settings file still runs after
+  // this and wins, as it does for every other setting: a dim= there changes
+  // the dimming whatever look is saved here.
+  NSString* inactive = [d stringForKey:@"inactive"];
+  if ([inactive isEqualToString:@"inactive=colour"] || [inactive isEqualToString:@"inactive=dim"]
+      || [inactive isEqualToString:@"inactive=grey"])
+    knit_apply(inactive.UTF8String);
+
   knit_apply([d boolForKey:@"on"] ? "knit=on" : "knit=off");
 
   // Restored before any window is discovered, so a switched-off app never
@@ -257,6 +265,8 @@ static void knit_load_prefs(void) {
     }
   }
   knit_apply(argument.UTF8String);
+  if ([argument hasPrefix:@"inactive="])
+    [NSUserDefaults.standardUserDefaults setObject:argument forKey:@"inactive"];
   if ([argument isEqualToString:@"apps=reload"] ||
       [argument isEqualToString:@"charts=reload"]) {
     [self.swatches removeAllObjects];
@@ -604,6 +614,15 @@ static void knit_load_prefs(void) {
     [self add:sizes title:[NSString stringWithFormat:@"Custom · %g rows", g_knit.rows]
         arg:[NSString stringWithFormat:@"gauge=%g", g_knit.rows] on:YES];
   }
+
+  NSMenu* inactive = [self submenu:menu title:@"Inactive Windows"];
+  BOOL grey = g_knit_grey > 0.001f, dimmed = !grey && g_knit_dim > 0.001f;
+  [self add:inactive title:@"Full Colour" arg:@"inactive=colour" on:!grey && !dimmed].toolTip =
+      @"Windows in the background keep their sweater's colours.";
+  [self add:inactive title:@"Dimmed" arg:@"inactive=dim" on:dimmed].toolTip =
+      @"Windows in the background wear a darker sweater.";
+  [self add:inactive title:@"Grey" arg:@"inactive=grey" on:grey].toolTip =
+      @"Only the window you're using wears colour.";
 
   [menu addItem:[NSMenuItem separatorItem]];
   NSMenuItem* quit = [[NSMenuItem alloc] initWithTitle:@"Quit Window Sweaters"

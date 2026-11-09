@@ -4,6 +4,7 @@
 #include "misc/apps.h"
 #include "border.h"
 #include "hashtable.h"
+#include <math.h>
 
 static bool str_starts_with(char* string, char* prefix) {
   if (!string || !prefix) return false;
@@ -67,6 +68,7 @@ uint32_t parse_settings(struct settings* settings, int count, char** arguments) 
   static char background_color[] = "background_color";
   static char blacklist[] = "blacklist=";
   static char whitelist[] = "whitelist=";
+  float grey;
 
   char order = 'a';
   uint32_t update_mask = 0;
@@ -161,6 +163,29 @@ uint32_t parse_settings(struct settings* settings, int count, char** arguments) 
       update_mask |= BORDER_UPDATE_MASK_ALL;
     }
     else if (sscanf(arguments[i], "dim=%f", &g_knit_dim) == 1) {
+      update_mask |= BORDER_UPDATE_MASK_ALL;
+    }
+    else if (sscanf(arguments[i], "grey=%f", &grey) == 1
+             || sscanf(arguments[i], "gray=%f", &grey) == 1) {
+      // Anything that is not a number is ignored, so a typo cannot hide sweaters.
+      if (isfinite(grey)) {
+        g_knit_grey = fminf(fmaxf(grey, 0.f), 1.f);
+        update_mask |= BORDER_UPDATE_MASK_ALL;
+      }
+    }
+    // The menu's three looks for windows in the background.
+    else if (strcmp(arguments[i], "inactive=colour") == 0
+             || strcmp(arguments[i], "inactive=color") == 0) {
+      g_knit_dim = 0.f; g_knit_grey = 0.f;
+      update_mask |= BORDER_UPDATE_MASK_ALL;
+    }
+    else if (strcmp(arguments[i], "inactive=dim") == 0) {
+      g_knit_dim = KNIT_INACTIVE_DIM; g_knit_grey = 0.f;
+      update_mask |= BORDER_UPDATE_MASK_ALL;
+    }
+    else if (strcmp(arguments[i], "inactive=grey") == 0
+             || strcmp(arguments[i], "inactive=gray") == 0) {
+      g_knit_dim = 0.f; g_knit_grey = 1.f;
       update_mask |= BORDER_UPDATE_MASK_ALL;
     }
     else if (sscanf(arguments[i], "ground=%f", &g_knit.ground) == 1) {
