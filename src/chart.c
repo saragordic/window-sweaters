@@ -99,7 +99,7 @@ static const struct collection_chart k_collection[] = {
     { 0xffc4c2b9u } },
   { "atelier-slack", {
       ".a......b...", "aaa....bbb..", ".a......b...",
-      "....c......d", "...ccc....dd", "....c......d" },
+      "....c.....d.", "...ccc...ddd", "....c.....d." },
     { 0xff63c5dfu, 0xff82c5a6u, 0xffedc45eu, 0xffe986a3u } },
   { "atelier-zoom", {
       ".aaaa...aaaa", ".abba...abba", ".abba...abba",
