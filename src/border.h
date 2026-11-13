@@ -85,6 +85,7 @@ struct border {
   CFAbsoluteTime resize_settle_after;
   double opacity;
   unsigned missing_snapshots;
+  unsigned quiet_audit_count;  // quiet snapshots since the last model-geometry query
   unsigned missing_overlay_snapshots;
   CFAbsoluteTime overlay_rebuild_after;
   CFAbsoluteTime space_check_after;
@@ -119,7 +120,9 @@ struct border {
   struct settings setting_override;
 };
 
-void border_refresh_space(struct border* border);
+// True only when it moved the overlay or re-read its Space; a no-op
+// 200 ms liveness check is not work, and must not hold the loop at fast cadence.
+bool border_refresh_space(struct border* border);
 void border_reset_surface(struct border* border);
 
 struct border* border_create();

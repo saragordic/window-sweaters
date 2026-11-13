@@ -58,6 +58,8 @@ static KnitMenuApp* fake_app(NSString* bundleID, NSString* name) { return app_wi
 static NSArray<KnitMenuApp*>* knit_menu_candidates(void) { return running_apps; }
 static NSSet<NSNumber*>* knit_menu_window_owners(void) { return window_owners; }
 void knit_apps_filter_changed(void) { filter_changes++; }
+// The screen-wake observer calls this. The real definition is in reconcile.c.
+void reconcile_kick(void) {}
 static NSArray<NSString*>* titles(NSMenu* menu) {
   NSMutableArray* result = [NSMutableArray array];
   for (NSMenuItem* item in menu.itemArray) [result addObject:item.isSeparatorItem ? @"-" : item.title];

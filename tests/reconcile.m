@@ -23,14 +23,17 @@ static CFAbsoluteTime test_now = 1;
 static int space_checks, space_repairs;
 static uint64_t target_space = 1;
 CFAbsoluteTime mock_now(void) { return test_now; }
-void border_refresh_space(struct border* b) {
+bool border_refresh_space(struct border* b) {
   space_checks++;
   if (b->sid != target_space) {
     b->sid = target_space; b->metadata_dirty = true; space_repairs++;
+    return true;
   }
+  return false;
 }
 int mock_connection(void) { return 1; }
-CGError mock_bounds(int cid, uint32_t wid, CGRect* bounds) { *bounds=CGRectMake(10,10,300,200);return gone ? kCGErrorFailure : kCGErrorSuccess; }
+static int model_queries;
+CGError mock_bounds(int cid, uint32_t wid, CGRect* bounds) { model_queries++; *bounds=CGRectMake(10,10,300,200);return gone ? kCGErrorFailure : kCGErrorSuccess; }
 struct settings* border_get_settings(struct border* b) { return &settings; }
 void border_update_geometry(struct border* b) { geometry++; b->target_bounds=CGRectMake(10,10,300,200); }
 void border_update_geometry_from_snapshot(struct border* b,CGRect frame,double opacity) {
@@ -56,6 +59,75 @@ static NSDictionary* window(uint32_t wid,pid_t pid,double alpha) {
     (__bridge NSString*)kCGWindowBounds:CFBridgingRelease(CGRectCreateDictionaryRepresentation(CGRectMake(10,10,300,200)))};
 }
 static void observe(NSArray* a) { windows_reconcile_snapshot(&g_windows,(__bridge CFArrayRef)a); }
+static void test_adaptive(void) {
+  g_quiet_streak = 0; g_reconcile_interval = .05; g_reconcile_kick = false;
+  g_power_low = false; g_screens_asleep = false; g_knit_on = true;
+  assert(reconcile_step_interval(false) == .05);
+  assert(reconcile_step_interval(false) == .1);
+  assert(reconcile_step_interval(false) == .2);
+  assert(reconcile_step_interval(false) == .2);
+  assert(reconcile_step_interval(false) == .2);
+  assert(reconcile_step_interval(false) == .2);
+  assert(reconcile_step_interval(true) == .05);
+  assert(reconcile_step_interval(false) == .05);
+  assert(reconcile_step_interval(false) == .1);
+  while (reconcile_step_interval(false) < .2) {}
+  reconcile_kick();
+  assert(reconcile_step_interval(false) == .05 && !g_reconcile_kick);
+  // Flag cleared: the next quiet steps decay. A sticky kick would stay at .05.
+  assert(reconcile_step_interval(false) == .05);
+  assert(reconcile_step_interval(false) == .1);
+  g_screens_asleep = true;
+  reconcile_kick();
+  assert(reconcile_step_interval(false) == 1.0);
+  assert(reconcile_step_interval(true) == 1.0);
+  g_screens_asleep = false;
+  g_quiet_streak = 0; g_reconcile_kick = false; g_power_low = true;
+  // fmax floors every quiet step, including the first: all .2 at this cap.
+  assert(reconcile_step_interval(false) == .2);
+  assert(reconcile_step_interval(false) == .2);
+  assert(reconcile_step_interval(false) == .2);
+  // Work still runs at full speed even in Low Power Mode.
+  assert(reconcile_step_interval(true) == .05);
+  g_power_low = false; g_quiet_streak = 0; g_reconcile_kick = false;
+  g_reconcile_interval = reconcile_step_interval(false);
+  assert(g_reconcile_interval == .05 && reconcile_is_fast());
+  reconcile_step_interval(false);
+  g_reconcile_interval = reconcile_step_interval(false);
+  assert(g_reconcile_interval == .2 && !reconcile_is_fast());
+  gone = false; settings.border_order = BORDER_ORDER_BELOW;
+  live_ids = NULL; live_count = 0; live_ids_expiry = 0;
+  table_init(&g_windows, 16, hash, equal);
+  uint32_t wid = 3;
+  target = (struct border){.target_wid=3,.wid=2,.sid=1,.visible=true,.geometry_valid=true,
+    .opacity=1,.target_bounds=CGRectMake(10,10,300,200),.space_check_after=0};
+  table_add(&g_windows, &wid, &target);
+  NSDictionary* s=window(3,200,1), *o=window(2,100,1), *rear=window(4,201,1);
+  g_quiet_streak = 4; g_reconcile_kick = false; g_power_low = false;
+  target_space = 1;                    // the border's Space is unchanged: a no-op check
+  int checks_before = space_checks, repairs_before = space_repairs;
+  bool quiet = windows_reconcile_snapshot(&g_windows, (__bridge CFArrayRef)@[s,o,rear]);
+  assert(!quiet && space_checks == checks_before + 1 && space_repairs == repairs_before);
+  assert(reconcile_step_interval(quiet) == .2); // a no-op space check is not work
+  bool repaired = windows_reconcile_snapshot(&g_windows, (__bridge CFArrayRef)@[s,rear,o]);
+  assert(repaired);
+  assert(reconcile_step_interval(repaired) == .05);
+  // Sub-pixel presentation noise must not defeat the audit skip: a 0.25 pt
+  // offset does no model query, a 3 pt shift does. (Scaled displays carry
+  // just such offsets permanently.)
+  NSMutableDictionary* frac = [s mutableCopy];
+  frac[(__bridge NSString*)kCGWindowBounds]
+    = CFBridgingRelease(CGRectCreateDictionaryRepresentation(CGRectMake(10.25,10,300,200)));
+  int queries = model_queries;
+  quiet = windows_reconcile_snapshot(&g_windows, (__bridge CFArrayRef)@[frac,o,rear]);
+  assert(!quiet && model_queries == queries);
+  frac[(__bridge NSString*)kCGWindowBounds]
+    = CFBridgingRelease(CGRectCreateDictionaryRepresentation(CGRectMake(13,10,300,200)));
+  quiet = windows_reconcile_snapshot(&g_windows, (__bridge CFArrayRef)@[frac,o,rear]);
+  assert(!quiet && model_queries == queries + 1);
+  table_free(&g_windows); free(previous_snapshot); previous_snapshot=NULL; previous_count=0;
+  puts("PASS: adaptive reconcile interval decay, kick, work reset, sleep and low-power");
+}
 static CFArrayRef mock_snapshot(CGWindowListOption options, CGWindowID wid) {
   return CFRetain((__bridge CFArrayRef)(gone ? @[] : @[window(3,200,1)]));
 }
@@ -90,6 +162,11 @@ int main(void) {@autoreleasepool {
   transformed[(__bridge NSString*)kCGWindowBounds]=CFBridgingRelease(CGRectCreateDictionaryRepresentation(CGRectMake(10,10,90,60)));
   observe(@[transformed,o,rear]);assert(target.native_transform&&!target.visible);
   observe(@[s,o,rear]);assert(!target.native_transform&&target.visible);
+  // The genie's early phase scales one axis first; EITHER dimension must hide.
+  NSMutableDictionary* wide=[s mutableCopy];
+  wide[(__bridge NSString*)kCGWindowBounds]=CFBridgingRelease(CGRectCreateDictionaryRepresentation(CGRectMake(10,10,300,90)));
+  observe(@[wide,o,rear]);assert(target.native_transform&&!target.visible);
+  observe(@[s,o,rear]);assert(!target.native_transform&&target.visible);
   // Ordering the same missing surface must eventually escalate to recreation.
   int old_resets=surface_resets;
   test_now += 2;
@@ -118,4 +195,5 @@ int main(void) {@autoreleasepool {
   observe(@[window(7,202,1),window(8,100,1)]); assert(creates==2);
   table_free(&g_windows);free(previous_snapshot);previous_snapshot=NULL;previous_count=0;free(live_ids);
   puts("PASS: missing create/hide/show/destroy, transparent source, geometry, above/below depth, failed snapshot");
+  test_adaptive();
 }return 0;}
