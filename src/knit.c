@@ -229,72 +229,136 @@ static void knit_blur(float* a, int w, int hgt, float* tmp) {
     }
 }
 
-// A compact fabric shader for colourwork. It shades fine yarn directly into
-// the cached tile, avoiding thousands of CoreGraphics paths at first paint.
-// Chart dimensions stay fixed while each profile chooses its stitch density.
-static struct knit_tile knit_make_fabric(float band, uint32_t color, int chart,
-                                        float sw, float row_step, int tw, int th, int scale) {
-  const struct knit_chart* ch = &g_charts[chart];
-  int width = tw * scale, height = th * scale;
-  uint32_t* pixels = malloc((size_t)width * height * sizeof *pixels);
-  if (!pixels) return (struct knit_tile){band, color, chart, NULL, tw, th};
-  // Pattern dimensions stay fixed. Quiet stripes/checks need more readable
-  // yarn; intricate motifs keep their finer texture rather than changing globally.
-  float stitch_scale = ch->defined_yarn ? 2.f : 1.f;
-  float relief = fminf(ch->defined_yarn ? 0.30f : 0.25f, fmaxf(0.f, g_knit.relief * (ch->defined_yarn ? 0.32f : 0.20f)));
-  for (int y = 0; y < height; y++) {
-    float sy = (y + 0.5f) / (scale * row_step);
-    float stitch_y = sy / stitch_scale;
-    int row = (int)floorf(stitch_y);
-    float v = stitch_y - row;
-    for (int x = 0; x < width; x++) {
-      float sx = (x + 0.5f) / (scale * sw);
-      int column = (int)floorf(sx);
-      float stitch_x = sx / stitch_scale;
-      int yarn_column = (int)floorf(stitch_x);
-      float u = stitch_x - yarn_column;
-      // Let the row boundary follow the small stitch head, avoiding a
-      // perfectly square pixel-art edge between contrasting yarn colours.
-      // Dot masks supply their own curved boundary. Warping their row
-      // lookup separately splits the dot at its middle stitch seam.
-      float color_warp = ch->round_dots ? 0.f : 0.16f * (1.f - 2.f * fabsf(2.f * u - 1.f));
-      int color_row = (int)floorf(sy + color_warp);
-      color_row = (color_row % (ch->h * 2) + ch->h * 2) % (ch->h * 2);
-      uint32_t yarn = ch->px[(size_t)(color_row / 2) * ch->w + (column / 2) % ch->w];
-      if (ch->round_dots && (yarn >> 24) >= 128) {
-        int cx = (column / 2) % ch->w, cy = color_row / 2;
-        bool left = ch->px[(size_t)cy * ch->w + (cx + ch->w - 1) % ch->w] == yarn;
-        bool above = ch->px[(size_t)((cy + ch->h - 1) % ch->h) * ch->w + cx] == yarn;
-        float dx = sx * 0.5f - floorf(sx * 0.5f) + (left ? 1.f : 0.f) - 1.f;
-        float dy = sy * 0.5f - floorf(sy * 0.5f) + (above ? 1.f : 0.f) - 1.f;
-        if (dx * dx + dy * dy > 0.94f) yarn = color;
+// How far each stitch's brightness strays from its neighbours, so the fabric
+// reads as hand-spun yarn rather than a flat print ("heather").
+#define KNIT_HEATHER 0.08f
+
+static float knit_heather(int column, int row) {
+  uint32_t seed = knit_mix((uint32_t)column * 2654435761u ^ (uint32_t)row * 40503u ^ 0x9e3779b9u);
+  return 1.f + ((seed & 255u) / 255.f - 0.5f) * KNIT_HEATHER;
+}
+
+// Loose fibres lying on the surface: short, faint, lighter strands in random
+// directions, roughly one per few stitches. Each is laid down at every wrap
+// offset, so the tile stays seamless. Drawn once, into the cached tile.
+// They are a brighter shade of the same yarn, never paler, so solid patches
+// keep a single hue.
+static void knit_fibres(CGContextRef c, int scale, float tw, float th, uint32_t color) {
+  float a, r, g, b;
+  colors_from_hex(color, &a, &r, &g, &b);
+  float lift = fminf(1.4f, 1.f / fmaxf(0.05f, fmaxf(r, fmaxf(g, b))));
+  CGContextSaveGState(c);
+  CGContextScaleCTM(c, scale, scale);
+  CGContextSetRGBStrokeColor(c, r * lift, g * lift, b * lift, 0.3f);
+  CGContextSetLineWidth(c, 0.35f);
+  CGContextSetLineCap(c, kCGLineCapRound);
+  CGMutablePathRef p = CGPathCreateMutable();
+  int count = (int)(tw * th / 7.f);
+  for (int k = 0; k < count; k++) {
+    float x = knit_noise(k, 101) * tw, y = knit_noise(k, 103) * th;
+    float dir = knit_noise(k, 107) * 2.f * (float)M_PI;
+    float len = 1.2f + 2.4f * knit_noise(k, 109);
+    float ex = cosf(dir) * len, ey = sinf(dir) * len;
+    for (int oy = -1; oy <= 1; oy++)
+      for (int ox = -1; ox <= 1; ox++) {
+        CGPathMoveToPoint(p, NULL, x + ox * tw, y + oy * th);
+        CGPathAddLineToPoint(p, NULL, x + ex + ox * tw, y + ey + oy * th);
       }
-      if ((yarn >> 24) < 128) yarn = color;
-      uint32_t seed = knit_mix((uint32_t)yarn_column * 73856093u ^ (uint32_t)row * 19349663u);
-      float wobble = ((seed & 255u) / 255.f - 0.5f) * g_knit.jitter;
-      // Rounded, nested stitch legs, with no hard highlight or black crevice.
-      float leg = 0.42f * (1.f - v) + 0.08f * v * (1.f - v);
-      float distance = fabsf(fabsf(u - 0.5f - wobble) - leg);
-      float radius = fmaxf(0.10f, g_knit.yarn * 0.5f);
-      float ridge = fmaxf(0.f, 1.f - distance * distance / (radius * radius));
-      uint32_t grain = knit_mix((uint32_t)x * 73856093u ^ (uint32_t)y * 19349663u);
-      float fibre = ((grain & 255u) / 255.f - 0.5f) * 0.014f;
-      float shade = g_knit.ground - relief * (1.f - ridge)
-                    + (g_knit.ambient - 0.94f) + g_knit.sheen * 0.08f * (0.5f - u) + fibre;
-      shade = fmaxf(0.f, shade);
-      uint32_t r = (uint32_t)fminf(255.f, ((yarn >> 16) & 255u) * shade);
-      uint32_t g = (uint32_t)fminf(255.f, ((yarn >> 8) & 255u) * shade);
-      uint32_t b = (uint32_t)fminf(255.f, (yarn & 255u) * shade);
-      pixels[(size_t)(height - 1 - y) * width + x] = 0xff000000u | (r << 16) | (g << 8) | b;
-    }
   }
+  CGContextAddPath(c, p);
+  CGContextStrokePath(c);
+  CFRelease(p);
+  CGContextRestoreGState(c);
+}
+
+// Colourwork, solid corner patches and plain stockinette. Every stitch is
+// drawn as a real knit V: two round legs leaning towards each other, each a
+// darker outline, the yarn itself and a soft highlight towards the top of the
+// leg, over a deeper ground that shows between stitches. Stitches vary a
+// little in brightness and loose fibres lie on top. Built once per tile, so
+// none of these paths cost anything per frame.
+
+// Both legs of a stitch, centred on the stitch. `lift` moves the shape up
+// each leg (in leg heights), which is how the highlight sits near the top.
+static void knit_legs(CGMutablePathRef p, float stw, float w, float h, float lift) {
+  for (int side = -1; side <= 1; side += 2) {
+    CGAffineTransform t = CGAffineTransformRotate(
+        CGAffineTransformMakeTranslation(side * 0.24f * stw, 0.f), side * 0.42f);
+    CGPathAddEllipseInRect(p, &t, CGRectMake(-w / 2, -h / 2 + lift * h, w, h));
+  }
+}
+
+static uint32_t knit_fabric_yarn(const struct knit_chart* ch, uint32_t color, float sx, float sy) {
+  int column = (int)floorf(sx);
+  int color_row = (int)floorf(sy);
+  color_row = (color_row % (ch->h * 2) + ch->h * 2) % (ch->h * 2);
+  int cx = ((column / 2) % ch->w + ch->w) % ch->w, cy = color_row / 2;
+  uint32_t yarn = ch->px[(size_t)cy * ch->w + cx];
+  if (ch->round_dots && (yarn >> 24) >= 128) {
+    bool left = ch->px[(size_t)cy * ch->w + (cx + ch->w - 1) % ch->w] == yarn;
+    bool above = ch->px[(size_t)((cy + ch->h - 1) % ch->h) * ch->w + cx] == yarn;
+    float dx = sx * 0.5f - floorf(sx * 0.5f) + (left ? 1.f : 0.f) - 1.f;
+    float dy = sy * 0.5f - floorf(sy * 0.5f) + (above ? 1.f : 0.f) - 1.f;
+    if (dx * dx + dy * dy > 0.94f) yarn = color;
+  }
+  return (yarn >> 24) < 128 ? color : yarn;
+}
+
+// Fill with the yarn at `shade`. A highlight brightens the yarn's own colour
+// (never towards white), so a solid patch keeps one hue throughout.
+static void knit_fill(CGContextRef c, uint32_t yarn, float shade, float lighten) {
+  float a, r, g, b;
+  colors_from_hex(yarn, &a, &r, &g, &b);
+  float f = fminf(shade * (1.f + lighten), 1.f / fmaxf(0.05f, fmaxf(r, fmaxf(g, b))));
+  CGContextSetRGBFillColor(c, r * f, g * f, b * f, 1.f);
+}
+
+static struct knit_tile knit_make_stitched(float band, uint32_t color, int chart, bool sculpted,
+                                           float sw, float row_step, int tw, int th, int scale) {
+  const struct knit_chart* ch = chart >= 0 && chart < g_chart_count ? &g_charts[chart] : NULL;
+  // One stitch per chart cell. Sculpted tiles are already laid out a cell per
+  // column; fabric tiles use two sample columns per cell.
+  float stitch_scale = ch && !sculpted && ch->defined_yarn ? 2.f : 1.f;
+  float lookup = sculpted ? 2.f : 1.f;
+  float stw = sw * stitch_scale, sth = row_step * stitch_scale;
+  int nx = (int)lroundf(tw / stw), ny = (int)lroundf(th / sth);
   CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-  CGContextRef context = CGBitmapContextCreate(pixels, width, height, 8, (size_t)width * 4, cs,
+  CGContextRef c = CGBitmapContextCreate(NULL, tw * scale, th * scale, 8, 0, cs,
       kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host);
-  CGImageRef image = context ? CGBitmapContextCreateImage(context) : NULL;
-  if (context) CGContextRelease(context);
   CGColorSpaceRelease(cs);
-  free(pixels);
+  if (!c) return (struct knit_tile){band, color, chart, NULL, tw, th};
+  CGContextScaleCTM(c, scale, scale);
+
+  // The ground between stitches.
+  knit_fill(c, color, 0.58f, 0.f);
+  CGContextFillRect(c, CGRectMake(0, 0, tw, th));
+
+  float lw = 0.52f * stw, lh = 1.3f * sth;
+  CGMutablePathRef rim = CGPathCreateMutable(), body = CGPathCreateMutable(),
+                   shine = CGPathCreateMutable();
+  knit_legs(rim, stw, lw, lh, 0.f);
+  knit_legs(body, stw, lw * 0.78f, lh * 0.86f, 0.03f);
+  knit_legs(shine, stw, lw * 0.34f, lh * 0.36f, 0.16f);
+
+  // Each row is laid over the one below it, as knitting builds up.
+  for (int j = ny; j >= -1; j--)
+    for (int i = -1; i <= nx; i++) {
+      int wi = (i % nx + nx) % nx, wj = (j % ny + ny) % ny;
+      uint32_t yarn = ch ? knit_fabric_yarn(ch, color, (wi + 0.5f) * stitch_scale * lookup,
+                                             (wj + 0.5f) * stitch_scale * lookup) : color;
+      float shade = knit_heather(wi, wj);
+      CGContextSaveGState(c);
+      CGContextTranslateCTM(c, (i + 0.5f) * stw, (j + 0.5f) * sth);
+      knit_fill(c, yarn, shade * 0.8f, 0.f);   CGContextAddPath(c, rim);   CGContextFillPath(c);
+      knit_fill(c, yarn, shade, 0.f);          CGContextAddPath(c, body);  CGContextFillPath(c);
+      knit_fill(c, yarn, shade, 0.16f);        CGContextAddPath(c, shine); CGContextFillPath(c);
+      CGContextRestoreGState(c);
+    }
+  CFRelease(rim); CFRelease(body); CFRelease(shine);
+  CGContextScaleCTM(c, 1.f / scale, 1.f / scale);
+  knit_fibres(c, scale, tw, th, color);
+  CGImageRef image = CGBitmapContextCreateImage(c);
+  CGContextRelease(c);
   return (struct knit_tile){band, color, chart, image, tw, th};
 }
 
@@ -334,41 +398,18 @@ static struct knit_tile knit_make_tile(float band, uint32_t color, int chart) {
   sw = (float)tw / ncols;
   row_step = (float)th / nrows;
   sh = row_step / (1.f - material.row_overlap);
-  float yarn = sw * material.yarn; yarn = fmaxf(yarn, sculpted ? 0.8f : 0.35f);
-  // Colourwork always uses stockinette, regardless of the last plain choice.
-  if (!ch && !sculpted && g_knit_stitch == KNIT_RIB) yarn = sw * 0.55f;
+  float yarn = fmaxf(sw * material.yarn, 0.35f);
+  if (g_knit_stitch == KNIT_RIB) yarn = sw * 0.55f;
 
   int S = knit_tile_scale_override ? knit_tile_scale_override
                                    : (row_step < 4.f ? 4 : 2);
-  if (ch && !sculpted) return knit_make_fabric(band, color, chart, sw, row_step, tw, th, S);
+  if (ch || sculpted || g_knit_stitch == KNIT_STOCKINETTE)
+    return knit_make_stitched(band, color, chart, sculpted, sw, row_step, tw, th, S);
   int W = tw * S, H = th * S;
 
   // ---- the paths, one per yarn colour ------------------------------------
-  uint32_t cols[16]; CGMutablePathRef paths[16]; int nc = 0;
-  if (sculpted) {
-    float bx = sw * 0.5f * material.bow;
-    for (int j = -2; j <= nrows + 1; j++)
-      for (int i = -2; i <= ncols + 1; i++) {
-        uint32_t px = 0;
-        if (ch) {
-          int cx = (i % ch->w + ch->w) % ch->w, cy = (j % ch->h + ch->h) % ch->h;
-          px = ch->px[(size_t)cy * ch->w + cx];
-        }
-        uint32_t yc = (px >> 24) < 128 ? color : (px | 0xff000000u);
-        int k = 0; while (k < nc && cols[k] != yc) k++;
-        if (k == nc) {
-          if (nc == 16) continue;
-          cols[nc] = yc; paths[nc++] = CGPathCreateMutable();
-        }
-        float x = i * sw, y = j * row_step;
-        CGPathMoveToPoint(paths[k], NULL, x, y);
-        CGPathAddQuadCurveToPoint(paths[k], NULL, x + bx, y + sh * 0.55f, x + sw * 0.5f, y + sh);
-        CGPathAddQuadCurveToPoint(paths[k], NULL, x + sw - bx, y + sh * 0.55f, x + sw, y);
-      }
-  } else {
-    cols[0] = color; paths[0] = CGPathCreateMutable(); nc = 1;
-    knit_lay(paths[0], ncols, nrows, sw, sh, row_step, 0.f, 0.f);
-  }
+  uint32_t cols[1] = { color }; CGMutablePathRef paths[1] = { CGPathCreateMutable() }; int nc = 1;
+  knit_lay(paths[0], ncols, nrows, sw, sh, row_step, 0.f, 0.f);
 
   CGColorSpaceRef rgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
   CGColorSpaceRef gray = CGColorSpaceCreateDeviceGray();
@@ -431,21 +472,16 @@ static struct knit_tile knit_make_tile(float band, uint32_t color, int chart) {
       if (ndl < 0.f) ndl = 0.f;
 
       // ambient, diffuse, and a little occlusion in the gaps between strands
-      float occ = sculpted ? 0.74f + 0.26f * hf[y*W + x]
-                           : 0.86f + 0.14f * hf[y*W + x];
+      float occ = 0.86f + 0.14f * hf[y*W + x];
       // Fixed, very quiet fibre variation: generated only on a cache miss.
       uint32_t grain = knit_mix((uint32_t)x * 73856093u ^ (uint32_t)y * 19349663u);
-      float fibre = sculpted ? 1.f : 0.993f + (grain & 255u) * (0.014f / 255.f);
+      float fibre = 0.993f + (grain & 255u) * (0.014f / 255.f);
       float shade = (material.ambient + material.sheen * ndl) * occ * fibre;
 
       uint32_t p = cbuf[y*W + x];
-      // Very dark wool still needs a visible strand highlight. Multiplication
-      // alone loses almost all relief when a yarn is close to black.
-      float peak = fmaxf(p & 255, fmaxf((p >> 8) & 255, (p >> 16) & 255));
-      float lift = sculpted ? fmaxf(0.f, 1.f - peak / 48.f) * hf[y*W + x] * 10.f : 0.f;
-      float cb = (p & 0xff) * shade + lift;
-      float cg = ((p >> 8) & 0xff) * shade + lift;
-      float cr = ((p >> 16) & 0xff) * shade + lift;
+      float cb = (p & 0xff) * shade;
+      float cg = ((p >> 8) & 0xff) * shade;
+      float cr = ((p >> 16) & 0xff) * shade;
       if (cr > 255.f) cr = 255.f;
       if (cg > 255.f) cg = 255.f;
       if (cb > 255.f) cb = 255.f;
