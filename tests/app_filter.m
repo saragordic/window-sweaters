@@ -137,6 +137,9 @@ struct settings* border_get_settings(struct border* border) { (void)border; retu
 bool knit_app_name_from_executable(const char* path, char* output, size_t capacity) {
   (void)path; (void)output; (void)capacity; return false;
 }
+bool knit_app_name_from_webapp(pid_t pid, char* output, size_t capacity) {
+  (void)pid; (void)output; (void)capacity; return false;
+}
 
 static unsigned long hash_wid(void* key) { return *(uint32_t*)key; }
 static int equal_wid(void* a, void* b) { return *(uint32_t*)a == *(uint32_t*)b; }

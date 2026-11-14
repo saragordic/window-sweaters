@@ -181,6 +181,50 @@ static const struct collection_chart k_collection[] = {
       "aa..........", "aa..........", "aa..........",
       "aa..........", "aa..........", "aa.........." },
     { 0xffecebe4u } },
+  { "atelier-opencode", {
+      "aaaa..aaaa..", "a..a..a..a..", "aaaa..aaaa..",
+      "..aaaa..aaaa", "..a..a..a..a", "..aaaa..aaaa" },
+    { 0xffefeae4u } },
+  { "atelier-beeper", {
+      ".aaa....bbb.", ".aaa....bbb.", "..a......b..",
+      ".....aaa....", ".....aaa....", "......a....." },
+    { 0xfffcfcfcu, 0xffd5ccfcu } },
+  { "atelier-willow", {
+      ".a.a..a.a...", "a.a.a.a.a.a.", ".aaa..aaa...",
+      "..a....a....", "..a....a....", "............" },
+    { 0xff4443aau } },
+  { "atelier-antigravity", {
+      "....aabb....", "...aa..bb...", "..cc....cc..",
+      ".cc......cc.", "cc........cc", "cc........cc" },
+    { 0xffc4e34au, 0xfff15d3cu, 0xff3d7ef5u } },
+  { "atelier-ytmusic", {
+      "aaaa....b...", "aaaa....b...", "aaaa....b...",
+      "aaaa....b...", "aaaa....b...", "aaaa....b..." },
+    { 0xffffffffu, 0xff212121u } },
+  { "atelier-protonvpn", {
+      "a....aa....a", "aa........aa", ".aa......aa.",
+      "..bb....bb..", "...bb..bb...", "....bbbb...." },
+    { 0xffffffffu, 0xff22c39au } },
+  { "atelier-xcode", {
+      "aa..........", "aa..........", "aa..........",
+      "aa..........", "aa..........", "aa.........." },
+    { 0xff2c2c30u } },
+  { "atelier-appstore", {
+      "...aaa...aaa", "...aaa...aaa", "...aaa...aaa",
+      "aaa...aaa...", "aaa...aaa...", "aaa...aaa..." },
+    { 0xffe8f4ffu } },
+  { "atelier-androidstudio", {
+      "...aaa...aaa", "...aaa...aaa", "...aaa...aaa",
+      "aaa...aaa...", "aaa...aaa...", "aaa...aaa..." },
+    { 0xff3ddc84u } },
+  { "atelier-settings", {
+      "aa..........", "aa..........", "aa..........",
+      "aa..........", "aa..........", "aa.........." },
+    { 0xff3a3a3cu } },
+  { "atelier-weather", {
+      "................", "..aa......aa....", "..aa......aa....",
+      "................", "......bb......bb", "......bb......bb" },
+    { 0xfff4f8fcu, 0xfff5c218u } },
   { "braid", {
       "abb........a", "a.bb......aa", "...bb....aaa",
       "....bb..aaa.", ".....bbaaa..", "......bba...",
@@ -232,6 +276,7 @@ static const struct collection_chart k_collection[] = {
 // A zero colour follows the app's own base yarn, including personal palettes.
 static const struct { const char* chart; uint32_t color; } k_corner_styles[] = {
   { "atelier-whatsapp", 0 },       // keep its stripe joins quiet
+  { "atelier-ytmusic", 0 },
 };
 
 _Static_assert(sizeof k_collection / sizeof k_collection[0] <= KNIT_CHART_MAX,
@@ -270,13 +315,16 @@ static void load_collection(void) {
       for (int cell = 0; cell < w * h; cell++)
         if (pixels[cell] == chart->cuff_color) pixels[cell] = 0;
     }
-    chart->round_dots = strcmp(spec->name, "atelier-messages") == 0;
+    chart->round_dots = strcmp(spec->name, "atelier-messages") == 0
+                     || strcmp(spec->name, "atelier-weather") == 0;
     chart->fitted_repeat = strcmp(spec->name, "atelier-finder") == 0
                          || strcmp(spec->name, "atelier-terminal") == 0
                          || strcmp(spec->name, "atelier-grok") == 0
                          || strcmp(spec->name, "atelier-granola") == 0
                          || strcmp(spec->name, "atelier-illustrator") == 0
-                         || strcmp(spec->name, "atelier-chrome") == 0;
+                         || strcmp(spec->name, "atelier-chrome") == 0
+                          || strcmp(spec->name, "atelier-xcode") == 0
+                          || strcmp(spec->name, "atelier-settings") == 0;
     chart->sculpted_yarn = !chart->round_dots;
     chart->defined_yarn = true;
   }
