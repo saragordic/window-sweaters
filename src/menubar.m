@@ -12,6 +12,7 @@
 #include "misc/status_icon.h"
 #include <stdio.h>
 
+extern void room_release_all_and_wait(void);  // room.c
 extern void knit_apply(const char* arg);   // main.c: feeds one "key=value"
 extern void knit_apps_filter_changed(void); // main.c: re-run the app gate
 extern bool g_knit_on;
@@ -171,6 +172,7 @@ static void knit_save_prefs(void) {
   [d setInteger:g_knit_stitch forKey:@"yarn"];
   [d setInteger:g_knit_basket forKey:@"basket"];
   [d setFloat:knit_current_width() forKey:@"width"];
+  [d setBool:knit_current_inset() forKey:@"inset"];
   [d setFloat:g_knit.rows forKey:@"gauge"];
   [d setObject:(g_chart_active >= 0 && g_chart_active < g_chart_count
                ? @(g_charts[g_chart_active].name) : @"none")
@@ -188,7 +190,7 @@ static void knit_load_prefs(void) {
   NSUserDefaults* d = NSUserDefaults.standardUserDefaults;
   // Older versions saved a global chart even while app profiles overrode it.
   // A missing mode therefore migrates to By App, preserving those sweaters.
-  [d registerDefaults:@{ @"on": @YES, @"yarn": @0, @"basket": @3, @"width": @12.0f, @"gauge": @6.0f, @"chart": @"none", @"patternByApp": @YES, @"anchor": @0, @"appsOnByDefault": @YES, @"appExceptions": @[] }];
+  [d registerDefaults:@{ @"on": @YES, @"yarn": @0, @"basket": @3, @"width": @12.0f, @"inset": @NO, @"gauge": @6.0f, @"chart": @"none", @"patternByApp": @YES, @"anchor": @0, @"appsOnByDefault": @YES, @"appExceptions": @[] }];
   char buf[128];
 
   NSInteger y = [d integerForKey:@"yarn"];
@@ -205,6 +207,8 @@ static void knit_load_prefs(void) {
   if (w < 2.f || w > 60.f) w = 12.f;
   snprintf(buf, sizeof buf, "width=%g", w);
   knit_apply(buf);
+
+  knit_apply([d boolForKey:@"inset"] ? "placement=inside" : "placement=outside");
 
   float g = [d floatForKey:@"gauge"];
   if (g >= 1.5f && g <= 40.f) { snprintf(buf, sizeof buf, "gauge=%g", g); knit_apply(buf); }
@@ -373,7 +377,16 @@ static void knit_load_prefs(void) {
   allOff.enabled = !(uniform && !knit_apps_on_by_default());
 }
 
-- (void)quit:(id)sender { [NSApp terminate:nil]; }
+- (void)openAccessibility:(id)sender {
+  [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:
+      @"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"]];
+}
+
+- (void)quit:(id)sender {
+  // Windows shrunk to make room for their sweaters get that space back.
+  room_release_all_and_wait();
+  [NSApp terminate:nil];
+}
 
 - (void)openApps:(id)sender {
   const char* path = knit_apps_path();
@@ -594,6 +607,19 @@ static void knit_load_prefs(void) {
     [widths addItem:[NSMenuItem separatorItem]];
     [self add:widths title:[NSString stringWithFormat:@"Custom · %g pt", width]
         arg:[NSString stringWithFormat:@"width=%g", width] on:YES];
+  }
+
+  NSMenu* placement = [self submenu:menu title:@"Placement"];
+  BOOL inset = knit_current_inset();
+  [self add:placement title:@"Around Window" arg:@"placement=outside" on:!inset].toolTip =
+      @"The sweater sits outside the window's edge.";
+  NSMenuItem* inside = [self add:placement title:@"Inside Window" arg:@"placement=inside" on:inset];
+  inside.toolTip =
+      @"Each window shrinks to make room for its sweater, so the sweater covers nothing and never reaches the menu bar or the window next door.";
+  if (inset && !AXIsProcessTrusted()) {
+    // Without it the windows cannot be resized, and nothing else would say why.
+    [placement addItem:[NSMenuItem separatorItem]];
+    [self addAction:placement title:@"Allow Accessibility Access\u2026" selector:@selector(openAccessibility:)];
   }
 
   NSMenu* sizes = [self submenu:menu title:@"Stitch Size"];

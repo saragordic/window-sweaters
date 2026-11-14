@@ -112,6 +112,14 @@ uint32_t parse_settings(struct settings* settings, int count, char** arguments) 
       else settings->border_order = BORDER_ORDER_BELOW;
       update_mask |= BORDER_UPDATE_MASK_ALL;
     }
+    else if (strcmp(arguments[i], "placement=inside") == 0) {
+      settings->inset = true;
+      update_mask |= BORDER_UPDATE_MASK_ALL;
+    }
+    else if (strcmp(arguments[i], "placement=outside") == 0) {
+      settings->inset = false;
+      update_mask |= BORDER_UPDATE_MASK_ALL;
+    }
     else if (sscanf(arguments[i], "style=%c", &settings->border_style) == 1) {
       update_mask |= BORDER_UPDATE_MASK_ALL;
     }

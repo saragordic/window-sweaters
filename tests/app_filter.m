@@ -98,6 +98,9 @@ static uint32_t mock_front(int cid) { (void)cid; return front_wid; }
 #define get_front_window mock_front
 #define ax_get_front_window mock_front
 #include "../src/windows.c"
+// Switched-off apps give their windows back the room their sweater took.
+static int room_forgets;
+void room_forget(uint32_t wid) { (void)wid; room_forgets++; }
 #undef proc_name
 #undef proc_pidpath
 
