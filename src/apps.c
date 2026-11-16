@@ -76,14 +76,24 @@ static const char* k_default_conf =
   "# Uncomment to customize:\n"
   "# Claude = #D58561 atelier-claude\n";
 
+#ifdef _WIN32
+const char* knit_data_dir(void);   // windows/src/paths.c: %APPDATA%\Window Sweaters
+#endif
+
 const char* knit_apps_path(void) {
   static char path[1024];
   if (path[0]) return path;
+#ifdef _WIN32
+  const char* base = knit_data_dir();
+  if (!base || !*base) return "";
+  snprintf(path, sizeof path, "%s\\apps.conf", base);
+#else
   const char* home = getenv("HOME");
   if (!home || !*home) return "";
   snprintf(path, sizeof path, "%s/Library/Application Support/Knit Borders", home);
   mkdir(path, 0755);
   snprintf(path, sizeof path, "%s/Library/Application Support/Knit Borders/apps.conf", home);
+#endif
   FILE* f = fopen(path, "r");
   if (f) { fclose(f); return path; }
   f = fopen(path, "w");                     // seed it the first time

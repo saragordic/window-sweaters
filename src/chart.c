@@ -6,12 +6,23 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <direct.h>
+const char* knit_data_dir(void);   // windows/src/paths.c: %APPDATA%\Window Sweaters
+#endif
 
 // Built-ins need no files. This folder is only for the user's own PNG charts;
 // do not seed obsolete examples back into a deliberately curated menu.
 const char* knit_charts_dir(void) {
   static char dir[1024];
   if (dir[0]) return dir;
+#ifdef _WIN32
+  const char* base = knit_data_dir();
+  if (!base || !*base) return "";
+  snprintf(dir, sizeof dir, "%s\\charts", base);
+  _mkdir(dir);
+  return dir;
+#else
   const char* home = getenv("HOME");
   if (!home || !*home) return "";
   snprintf(dir, sizeof dir, "%s/Library/Application Support/Knit Borders", home);
@@ -19,6 +30,7 @@ const char* knit_charts_dir(void) {
   snprintf(dir, sizeof dir, "%s/Library/Application Support/Knit Borders/charts", home);
   mkdir(dir, 0755);
   return dir;
+#endif
 }
 
 struct knit_chart g_charts[KNIT_CHART_MAX];

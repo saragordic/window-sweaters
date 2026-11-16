@@ -1,6 +1,6 @@
-# Window Sweaters for macOS
+# Window Sweaters for macOS and Windows
 
-A little Mac app I made to give my windows sweaters. 🧶
+A little Mac app I made to give my windows sweaters, now on Windows too. 🧶
 Knitted borders, colours inspired by your favourite apps, and a cosier desktop.
 
 ![Four overlapping windows edged with knitted borders in green, blue and rust colourways](docs/hero.jpg)
@@ -27,6 +27,13 @@ Then open **Window Sweaters** from your Applications folder.
 You can also grab the latest ZIP from [Releases](https://github.com/saragordic/window-sweaters/releases), unzip it, and drag **Window Sweaters.app** into Applications.
 
 If macOS blocks it, open **System Settings → Privacy & Security → Open Anyway** after trying to launch it. The app isn't notarized by Apple yet. [Apple's instructions](https://support.apple.com/en-us/102445) explain this step.
+
+### On Windows
+
+Window Sweaters also runs on Windows 10 and 11, on both x64 and Arm PCs. It
+lives in the notification area instead of the menu bar and wears the same
+sweaters. See [windows/README.md](windows/README.md) to install it, build it
+and find out what's different.
 
 ## Make yourself cosy
 
@@ -69,7 +76,8 @@ If something looks wrong, [open an issue](https://github.com/saragordic/window-s
 
 ## Build it yourself
 
-You'll need Apple's Command Line Tools (`xcode-select --install`) and Python 3.
+To build the Windows version, see [windows/README.md](windows/README.md#build-it-yourself).
+For the Mac app, you'll need Apple's Command Line Tools (`xcode-select --install`) and Python 3.
 
 ```sh
 git clone https://github.com/saragordic/window-sweaters.git
