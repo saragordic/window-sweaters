@@ -7,6 +7,13 @@
 extern struct table g_windows;
 extern pid_t g_pid;
 static const double snapshot_interval = .05;
+// WindowServer may round presentation bounds outward during app transitions.
+static const double presentation_size_tolerance = 2;
+
+static bool presentation_size_matches(CGSize observed, CGSize expected) {
+  return fabs(observed.width - expected.width) <= presentation_size_tolerance
+      && fabs(observed.height - expected.height) <= presentation_size_tolerance;
+}
 
 struct observed_window {
   uint32_t wid;
@@ -70,6 +77,7 @@ void windows_reconcile_snapshot(struct table* windows, CFArrayRef snapshot) {
   assert(pthread_main_np());
   if (!snapshot) return;
   CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+  bool mouse_held = CGEventSourceButtonState(kCGEventSourceStateCombinedSessionState, kCGMouseButtonLeft);
   // Opt-in, short-lived transfer diagnostics: IDs and geometry only, no titles.
   static CFAbsoluteTime trace_after, trace_end;
   bool trace = false;
@@ -160,9 +168,11 @@ void windows_reconcile_snapshot(struct table* windows, CFArrayRef snapshot) {
         border->space_check_after = now + .20;
         border_refresh_space(border);
       }
-      // Use observed size here: an app may defer model bounds/notifications
-      // while the user is inside its native mouse-tracking resize loop.
-      if (!border->resize_suppressed && border_suppress_live_resize(border, source->bounds)) {
+      // A drag may change presentation bounds before model bounds update.
+      // Stage Manager also changes presentation bounds when switching apps.
+      if (!border->resize_suppressed && mouse_held
+          && !presentation_size_matches(source->bounds.size, border->drawing_bounds.size)
+          && border_suppress_live_resize(border, source->bounds)) {
         bucket = next;
         continue;
       }
@@ -176,10 +186,9 @@ void windows_reconcile_snapshot(struct table* windows, CFArrayRef snapshot) {
       }
       // Do not alternate presentation/model sizes in the settling timer.
       // Wait for them to agree before restoring a suppressed resize border.
+      bool settled = presentation_size_matches(source->bounds.size, geometry.size);
       if (border->resize_suppressed
-          && (fabs(source->bounds.size.width - geometry.size.width) > 1
-              || fabs(source->bounds.size.height - geometry.size.height) > 1
-              || border_suppress_live_resize(border, geometry))) {
+          && (!settled || border_suppress_live_resize(border, geometry))) {
         bucket = next;
         continue;
       }
@@ -189,8 +198,6 @@ void windows_reconcile_snapshot(struct table* windows, CFArrayRef snapshot) {
       bool scaled = geometry.size.width > 0 && geometry.size.height > 0
         && fabs(source->bounds.size.width / geometry.size.width - 1) > .08
         && fabs(source->bounds.size.height / geometry.size.height - 1) > .08;
-      bool settled = fabs(source->bounds.size.width - geometry.size.width) <= 1
-        && fabs(source->bounds.size.height - geometry.size.height) <= 1;
       border->native_transform = scaled || (border->native_transform && !settled);
       if (border->native_transform) {
         if (border->visible) windows_window_hide(windows, wid);

@@ -4,6 +4,8 @@ CFAbsoluteTime mock_now(void);
 #define CFAbsoluteTimeGetCurrent mock_now
 #define SLSGetWindowBounds mock_bounds
 #define SLSMainConnectionID mock_connection
+static bool mock_button(CGEventSourceStateID state, CGMouseButton button);
+#define CGEventSourceButtonState mock_button
 #include "../src/windows.h"
 static CFArrayRef mock_snapshot(CGWindowListOption options, CGWindowID wid);
 #define CGWindowListCopyWindowInfo mock_snapshot
@@ -18,7 +20,8 @@ static struct settings settings = {.border_order = BORDER_ORDER_BELOW};
 static struct border target, discovered;
 static int hides, restores, geometry, orders, destroys, creates, surface_resets;
 void border_reset_surface(struct border* b) { surface_resets++; b->visible=false; b->geometry_valid=false; }
-static bool gone;
+static bool gone, mouse_held;
+static bool mock_button(CGEventSourceStateID state, CGMouseButton button) { return mouse_held; }
 static CFAbsoluteTime test_now = 1;
 static int space_checks, space_repairs;
 static uint64_t target_space = 1;
@@ -37,7 +40,13 @@ void border_update_geometry_from_snapshot(struct border* b,CGRect frame,double o
   if(!b->visible)restores++;else if(!CGRectEqualToRect(frame,b->target_bounds))geometry++;
   b->visible=true;b->geometry_valid=true;b->metadata_dirty=false;b->target_bounds=frame;b->opacity=opacity;
 }
-bool border_suppress_live_resize(struct border* b,CGRect bounds) { return b->resize_suppressed; }
+bool border_suppress_live_resize(struct border* b,CGRect bounds) {
+  if (!b->resize_suppressed && b->visible && !CGSizeEqualToSize(bounds.size, b->drawing_bounds.size)) {
+    b->resize_suppressed = true;
+    b->visible = false;
+  }
+  return b->resize_suppressed;
+}
 void border_reorder(struct border* b) { orders++; }
 void windows_window_hide(struct table* t,uint32_t wid) { hides++; ((struct border*)table_find(t,&wid))->visible=false; }
 void windows_window_unhide(struct table* t,uint32_t wid) { restores++; ((struct border*)table_find(t,&wid))->visible=true; }
@@ -63,6 +72,7 @@ int main(void) {@autoreleasepool {
   table_init(&g_windows,16,hash,equal);
   uint32_t wid=3;target=(struct border){.target_wid=3,.wid=2,.sid=1,.visible=true,.geometry_valid=true,
     .target_bounds=CGRectMake(10,10,300,200)};table_add(&g_windows,&wid,&target);
+  target.drawing_bounds = CGRectMake(0,0,300,200);
   NSDictionary*s=window(3,200,1),*o=window(2,100,1),*rear=window(4,201,1);
   observe(@[s,o,rear]);assert(!hides&&!orders&&!geometry&&!restores);
   assert(space_checks == 1 && space_repairs == 0);
@@ -86,10 +96,31 @@ int main(void) {@autoreleasepool {
   observe(@[s,rear]);assert(restores==1&&target.visible); // Lost UNHIDE.
   observe(@[window(3,200,0),o,rear]);assert(hides==2); // Alpha-zero retained source.
   observe(@[s,o,rear]);assert(restores==2);
+  // Stage Manager reports presentation bounds independently of the model.
+  NSMutableDictionary* rounded = [s mutableCopy];
+  rounded[(__bridge NSString*)kCGWindowBounds] = CFBridgingRelease(
+      CGRectCreateDictionaryRepresentation(CGRectMake(10,10,302,201)));
+  for (int i = 0; i < 4; i++) {
+    observe(@[rounded,o,rear]);
+    assert(!target.resize_suppressed && target.visible);
+  }
+  mouse_held = true;
+  observe(@[rounded,o,rear]); // One click and snapshot rounding must not trigger a drag.
+  assert(!target.resize_suppressed && target.visible);
+  NSMutableDictionary* dragged = [s mutableCopy];
+  dragged[(__bridge NSString*)kCGWindowBounds] = CFBridgingRelease(
+      CGRectCreateDictionaryRepresentation(CGRectMake(10,10,320,210)));
+  observe(@[dragged,o,rear]); // A real size change during a drag can be presentation-only.
+  assert(target.resize_suppressed && !target.visible);
+  mouse_held = false;
+  target.resize_suppressed = false; // The tracking tests exercise mouse-up and resize settling.
+  observe(@[s,o,rear]);
+
   NSMutableDictionary* transformed=[s mutableCopy];
   transformed[(__bridge NSString*)kCGWindowBounds]=CFBridgingRelease(CGRectCreateDictionaryRepresentation(CGRectMake(10,10,90,60)));
-  observe(@[transformed,o,rear]);assert(target.native_transform&&!target.visible);
-  observe(@[s,o,rear]);assert(!target.native_transform&&target.visible);
+  observe(@[transformed,o,rear]);assert(target.native_transform&&!target.visible&&!target.resize_suppressed);
+  observe(@[rounded,o,rear]);assert(!target.native_transform&&target.visible);
+  observe(@[rounded,o,rear]);assert(target.visible&&!target.resize_suppressed);
   // Ordering the same missing surface must eventually escalate to recreation.
   int old_resets=surface_resets;
   test_now += 2;
